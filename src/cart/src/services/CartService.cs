@@ -86,11 +86,14 @@ public class CartService : Oteldemo.CartService.CartServiceBase
                 {
                     await _badCartStore.EmptyCartAsync(request.UserId);
                 }
-                catch (RpcException)
+<<<<<<< HEAD
+                catch (RpcException ex)
                 {
                     // The cartFailure feature flag routes to an intentionally broken store for
-                    // chaos-engineering purposes. Fall back to the healthy store so that the
-                    // user-facing EmptyCart operation still succeeds even when the flag is on.
+                    // chaos-engineering purposes. Record the failure for observability then fall back
+                    // to the healthy store so that the user-facing EmptyCart operation still succeeds.
+                    Activity.Current?.AddException(ex);
+                    Activity.Current?.SetTag("cart.failure.fallback", true);
                     await _cartStore.EmptyCartAsync(request.UserId);
                 }
             }
