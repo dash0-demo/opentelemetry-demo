@@ -82,6 +82,12 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
+                // Intentional fault-injection path: simulate a cart storage failure.
+                // The bad cart store is configured with an unreachable host so that
+                // EmptyCartAsync throws, exercising the error-handling path in callers.
+                // This path is only active when the "cartFailure" feature flag is ON;
+                // it should never be enabled in production outside of planned chaos tests.
+                activity?.SetTag("fault.injection", "cartFailure");
                 await _badCartStore.EmptyCartAsync(request.UserId);
             }
             else

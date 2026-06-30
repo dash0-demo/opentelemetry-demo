@@ -70,7 +70,7 @@
       "defaultVariant": "off"
     },
     "cartFailure": {
-      "description": "Fail cart service",
+      "description": "Fail cart service (fault injection: routes EmptyCart to an unreachable Redis host). Only enable for planned chaos/demo tests; must remain 'off' in normal operation.",
       "state": "DISABLED",
       "variants": {
         "on": true,
