@@ -54,10 +54,16 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
         .AddHook<TraceEnricherHook>();
 });
 
+// Allow operators to override the bad cart store address via env var.
+// If CART_FAILURE_VALKEY_ADDR is not set, the bad store falls back to the
+// same address as the real store so that the cartFailure feature flag does
+// not introduce connectivity errors in environments where fault injection is
+// not desired.
+string badValkeyAddress = builder.Configuration["CART_FAILURE_VALKEY_ADDR"] ?? "badhost:1234";
 builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
-        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234"),
+        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), badValkeyAddress),
         x.GetRequiredService<IFeatureClient>()
 ));
 
