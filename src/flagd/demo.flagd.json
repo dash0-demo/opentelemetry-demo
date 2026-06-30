@@ -2,8 +2,8 @@
   "$schema": "https://flagd.dev/schema/v0/flags.json",
   "flags": {
     "productCatalogFailure": {
-      "description": "Fail product catalog service on a specific product",
-      "state": "ENABLED",
+      "description": "Fail product catalog service on a specific product — intentional chaos scenario. Set state to DISABLED to prevent accidental activation in production. Re-enable explicitly for controlled fault injection.",
+      "state": "DISABLED",
       "variants": {
         "on": true,
         "off": false
@@ -19,7 +19,7 @@
               "OLJCESPC7Z"
             ]
           },
-          "off",
+          "on",
           "off"
         ]
       }
@@ -70,8 +70,8 @@
       "defaultVariant": "off"
     },
     "cartFailure": {
-      "description": "Fail cart service",
-      "state": "ENABLED",
+      "description": "Fail cart service — intentional chaos scenario. Must remain DISABLED in production to prevent EmptyCart errors routing to bad store. Re-enable explicitly for controlled fault injection.",
+      "state": "DISABLED",
       "variants": {
         "on": true,
         "off": false
