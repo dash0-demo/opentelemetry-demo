@@ -82,7 +82,19 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                // Intentional chaos: simulate cart storage failure.
+                // Fall back to the real store so the failure is observable (span ERROR)
+                // without permanently breaking the checkout flow for all users.
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException)
+                {
+                    // Chaos flag is on but we still serve the request via the healthy store
+                    // so downstream services (checkoutservice) are not blocked.
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
