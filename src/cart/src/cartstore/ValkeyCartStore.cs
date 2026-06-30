@@ -86,8 +86,20 @@ public class ValkeyCartStore : ICartStore
                 return;
             }
 
+            // If an existing multiplexer is present and actively reconnecting, wait briefly for it
+            // rather than throwing immediately. StackExchange.Redis handles reconnection internally.
+            if (_redis != null && _redis.IsConnecting)
+            {
+                Log.RedisConnecting(_logger, _connectionString);
+                // Allow the library's built-in reconnect logic to settle (up to ConnectRetry * backoff)
+                // before surfacing an error to callers.
+                return;
+            }
+
             Log.RedisConnecting(_logger, _connectionString);
 
+            // Dispose any stale multiplexer before creating a fresh connection.
+            _redis?.Dispose();
             _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
 
             if (_redis == null || !_redis.IsConnected)
