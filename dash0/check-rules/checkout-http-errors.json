@@ -1,0 +1,15 @@
+{
+  "name": "HTTP Errors on Checkout Service",
+  "expression": "sum(increase({otel_metric_name=\"dash0.spans\", service_name=\"checkoutservice\", http_response_status_code=~\"4..|5..\"}[1m])) > $__threshold",
+  "summary": "HTTP Errors on Checkout Service is higher than 100 / 200 per minute",
+  "description": "HTTP Errors on Checkout Service is higher than 100 / 200 per minute",
+  "modes": ["error"],
+  "labels": {
+    "dash0.resource.type": "synthetic"
+  },
+  "annotations": {},
+  "thresholds": {
+    "degraded": 75,
+    "failed": 200
+  }
+}
