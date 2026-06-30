@@ -70,13 +70,20 @@
       "defaultVariant": "off"
     },
     "cartFailure": {
-      "description": "Fail cart service",
+      "description": "Fail cart service EmptyCart on a probabilistic fraction of requests (10%). Prevents the flag from being permanently enabled for all requests.",
       "state": "ENABLED",
       "variants": {
         "on": true,
         "off": false
       },
-      "defaultVariant": "off"
+      "defaultVariant": "off",
+      "targeting": {
+        "fractional": [
+          { "var": "$flagd.flagKey" },
+          ["on", 10],
+          ["off", 90]
+        ]
+      }
     },
     "paymentFailure": {
       "description": "Fail payment service charge requests n%",
