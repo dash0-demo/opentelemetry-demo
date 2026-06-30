@@ -53,7 +53,7 @@
     },
     "adFailure": {
       "description": "Fail ad service",
-      "state": "ENABLED",
+      "state": "DISABLED",
       "variants": {
         "on": true,
         "off": false
@@ -144,7 +144,7 @@
     },
     "intlShippingSlowdown": {
       "description": "Delays international shipping responses to simulate overseas shipping delay",
-      "state": "ENABLED",
+      "state": "DISABLED",
       "variants": {
         "10sec": 10,
         "5sec": 5,
