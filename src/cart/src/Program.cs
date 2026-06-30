@@ -35,6 +35,8 @@ if (string.IsNullOrEmpty(valkeyAddress))
     Environment.Exit(1);
 }
 
+string valkeyBadAddr = builder.Configuration["VALKEY_BAD_ADDR"] ?? "badhost:1234";
+
 builder.Logging
     .AddOpenTelemetry(options => options.AddOtlpExporter())
     .AddConsole();
@@ -57,7 +59,7 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
 builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
-        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234"),
+        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), valkeyBadAddr),
         x.GetRequiredService<IFeatureClient>()
 ));
 
