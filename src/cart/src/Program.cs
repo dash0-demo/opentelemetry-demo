@@ -23,9 +23,7 @@ using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
-using OpenFeature;
-using OpenFeature.Hooks;
-using OpenFeature.Providers.Flagd;
+
 
 var builder = WebApplication.CreateBuilder(args);
 string valkeyAddress = builder.Configuration["VALKEY_ADDR"];
@@ -46,19 +44,9 @@ builder.Services.AddSingleton<ICartStore>(x =>
     return store;
 });
 
-builder.Services.AddOpenFeature(openFeatureBuilder =>
-{
-    openFeatureBuilder
-        .AddProvider(_ => new FlagdProvider())
-        .AddHook<MetricsHook>()
-        .AddHook<TraceEnricherHook>();
-});
-
 builder.Services.AddSingleton(x =>
     new CartService(
-        x.GetRequiredService<ICartStore>(),
-        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234"),
-        x.GetRequiredService<IFeatureClient>()
+        x.GetRequiredService<ICartStore>()
 ));
 
 
