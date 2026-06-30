@@ -177,18 +177,32 @@ public class ValkeyCartStore : ICartStore
     public async Task EmptyCartAsync(string userId)
     {
         Log.EmptyCartAsync(_logger, userId);
-        try
-        {
-            EnsureRedisConnected();
-            var db = _redis.GetDatabase();
 
-            // Update the cache with empty cart for given user
-            await db.HashSetAsync(userId, new[] { new HashEntry(CartFieldName, _emptyCartBytes) });
-            await db.KeyExpireAsync(userId, TimeSpan.FromMinutes(60));
-        }
-        catch (Exception ex)
+        const int maxRetries = 3;
+        const int retryDelayMs = 200;
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
-            throw new RpcException(new Status(StatusCode.FailedPrecondition, $"Can't access cart storage. {ex}"));
+            try
+            {
+                EnsureRedisConnected();
+                var db = _redis.GetDatabase();
+
+                // Update the cache with empty cart for given user
+                await db.HashSetAsync(userId, new[] { new HashEntry(CartFieldName, _emptyCartBytes) });
+                await db.KeyExpireAsync(userId, TimeSpan.FromMinutes(60));
+                return;
+            }
+            catch (ApplicationException) when (attempt < maxRetries)
+            {
+                // Redis connection failed transiently — reset state and retry after a short delay
+                _isRedisConnectionOpened = false;
+                await Task.Delay(retryDelayMs * attempt);
+            }
+            catch (Exception ex)
+            {
+                throw new RpcException(new Status(StatusCode.FailedPrecondition, $"Can't access cart storage. {ex}"));
+            }
         }
     }
 
