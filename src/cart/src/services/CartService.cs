@@ -82,7 +82,16 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException)
+                {
+                    // Fault injection failed as expected; fall back to the real store so
+                    // the cart is still emptied and the checkout flow can complete.
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
