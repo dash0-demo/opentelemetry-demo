@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using StackExchange.Redis;
@@ -90,11 +91,28 @@ public class ValkeyCartStore : ICartStore
 
             _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
 
-            if (_redis == null || !_redis.IsConnected)
+            if (_redis == null)
             {
                 Log.RedisConnectionFailed(_logger);
 
                 // We weren't able to connect to Redis despite some retries with exponential backoff.
+                throw new ApplicationException("Wasn't able to connect to redis");
+            }
+
+            // Wait briefly for the connection to be established.
+            // With abortConnect=false, ConnectionMultiplexer.Connect() returns before the
+            // underlying socket handshake completes, so IsConnected may be false immediately
+            // after Connect(). We poll for up to 5 seconds to let the handshake finish
+            // rather than failing the first request with a FailedPrecondition error.
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (!_redis.IsConnected && DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(100);
+            }
+
+            if (!_redis.IsConnected)
+            {
+                Log.RedisConnectionFailed(_logger);
                 throw new ApplicationException("Wasn't able to connect to redis");
             }
 
