@@ -523,21 +523,31 @@ func (cs *checkout) emptyUserCart(ctx context.Context, userID string) error {
 }
 
 func (cs *checkout) prepOrderItems(ctx context.Context, items []*pb.CartItem, userCurrency string) ([]*pb.OrderItem, error) {
-	out := make([]*pb.OrderItem, len(items))
+	var out []*pb.OrderItem
 
-	for i, item := range items {
+	for _, item := range items {
 		product, err := cs.productCatalogSvcClient.GetProduct(ctx, &pb.GetProductRequest{Id: item.GetProductId()})
 		if err != nil {
+			if status.Code(err) == codes.NotFound {
+				// Product no longer exists in the catalog (stale cart item). Skip it
+				// and continue processing remaining items rather than aborting checkout.
+				logger.LogAttrs(
+					ctx,
+					slog.LevelWarn, "skipping stale cart item: product not found in catalog",
+					slog.String("product_id", item.GetProductId()),
+				)
+				continue
+			}
 			return nil, fmt.Errorf("failed to get product #%q", item.GetProductId())
 		}
 		price, err := cs.convertCurrency(ctx, product.GetPriceUsd(), userCurrency)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert price of %q to %s", item.GetProductId(), userCurrency)
 		}
-		out[i] = &pb.OrderItem{
+		out = append(out, &pb.OrderItem{
 			Item: item,
 			Cost: price,
-		}
+		})
 	}
 	return out, nil
 }
