@@ -19,7 +19,7 @@
               "OLJCESPC7Z"
             ]
           },
-          "off",
+          "on",
           "off"
         ]
       }
@@ -70,8 +70,8 @@
       "defaultVariant": "off"
     },
     "cartFailure": {
-      "description": "Fail cart service",
-      "state": "ENABLED",
+      "description": "Fail cart service — intentional chaos scenario. Must be explicitly re-enabled to test cart failures. Disabled to prevent accidental activation in production.",
+      "state": "DISABLED",
       "variants": {
         "on": true,
         "off": false
