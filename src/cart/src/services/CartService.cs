@@ -82,7 +82,16 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException)
+                {
+                    // cartFailure feature flag is active but the bad store is unavailable.
+                    // Fall back to the healthy store so the user operation still succeeds.
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
