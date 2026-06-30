@@ -7,6 +7,7 @@ using Grpc.Core;
 using cart.cartstore;
 using OpenFeature;
 using Oteldemo;
+using Microsoft.Extensions.Logging;
 
 namespace cart.services;
 
@@ -17,12 +18,14 @@ public class CartService : Oteldemo.CartService.CartServiceBase
     private readonly ICartStore _badCartStore;
     private readonly ICartStore _cartStore;
     private readonly IFeatureClient _featureFlagHelper;
+    private readonly ILogger<CartService> _logger;
 
-    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService)
+    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService, ILogger<CartService> logger)
     {
         _badCartStore = badCartStore;
         _cartStore = cartStore;
         _featureFlagHelper = featureFlagService;
+        _logger = logger;
     }
 
     public override async Task<Empty> AddItem(AddItemRequest request, ServerCallContext context)
@@ -80,8 +83,14 @@ public class CartService : Oteldemo.CartService.CartServiceBase
 
         try
         {
-            if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
+            var cartFailureEnabled = await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false);
+            if (cartFailureEnabled)
             {
+                // cartFailure feature flag is ON — intentionally routing to the bad store
+                // to simulate a Redis connectivity failure. Disable the flag via the
+                // flagd-ui or set defaultVariant to "off" in demo.flagd.json to recover.
+                _logger.LogWarning("cartFailure feature flag is enabled; EmptyCart will fail for userId={UserId}", request.UserId);
+                activity?.SetTag("demo.cart.failure_injection", true);
                 await _badCartStore.EmptyCartAsync(request.UserId);
             }
             else
