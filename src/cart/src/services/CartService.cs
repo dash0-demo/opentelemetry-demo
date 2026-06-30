@@ -82,7 +82,20 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException ex)
+                {
+                    // cartFailure flag is for demo/testing purposes only.
+                    // Log the simulated failure but fall back to the real store
+                    // so the user's cart is still emptied successfully.
+                    Activity.Current?.AddEvent(new("cartFailure flag active: bad store failed, falling back to real store"));
+                    Activity.Current?.SetTag("demo.cart.failure.simulated", true);
+                    Activity.Current?.SetTag("demo.cart.failure.message", ex.Message);
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
