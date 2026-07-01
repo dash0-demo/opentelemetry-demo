@@ -83,8 +83,8 @@ def get_product_list(request_product_ids):
                 logger.info("get_product_list: cache miss")
                 cat_response = product_catalog_stub.ListProducts(demo_pb2.Empty())
                 response_ids = [x.id for x in cat_response.products]
-                cached_ids = cached_ids + response_ids
-                cached_ids = cached_ids + cached_ids[:len(cached_ids) // 4]
+                # Reset cache instead of appending to prevent unbounded growth
+                cached_ids = response_ids
                 product_ids = cached_ids
             else:
                 span.set_attribute("demo.recommendation.cache_hit", True)
@@ -121,9 +121,8 @@ def must_map_env(key: str):
 
 
 def check_feature_flag(flag_name: str):
-    # Initialize OpenFeature
     client = api.get_client()
-    return client.get_boolean_value("recommendationCacheFailure", False)
+    return client.get_boolean_value(flag_name, False)
 
 
 if __name__ == "__main__":
