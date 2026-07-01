@@ -376,8 +376,10 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 
 	found, err := getProductFromDB(ctx, req.Id)
 	if err != nil {
-		msg := fmt.Sprintf("Product Not Found: %s", req.Id)
-		span.SetStatus(otelcodes.Error, msg)
+		msg := fmt.Sprintf("Product Id Not Found: %s", req.Id)
+		// NOT_FOUND is a valid client-side condition, not a server error.
+		// Do not set span status to Error — leave it Unset so it doesn't
+		// inflate the service error rate and trigger SLO alerts.
 		span.AddEvent(msg)
 		return nil, status.Error(codes.NotFound, msg)
 	}
