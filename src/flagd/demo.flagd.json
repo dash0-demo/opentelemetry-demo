@@ -53,7 +53,7 @@
     },
     "adFailure": {
       "description": "Fail ad service",
-      "state": "ENABLED",
+      "state": "DISABLED",
       "variants": {
         "on": true,
         "off": false
