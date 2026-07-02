@@ -131,6 +131,7 @@ func initLoggerProvider() *sdklog.LoggerProvider {
 
 	loggerProvider := sdklog.NewLoggerProvider(
 		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
+		sdklog.WithResource(initResource()),
 	)
 	global.SetLoggerProvider(loggerProvider)
 
