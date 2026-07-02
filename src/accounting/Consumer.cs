@@ -8,6 +8,8 @@ using Npgsql;
 using Oteldemo;
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
+using OpenTelemetry;
+using OpenTelemetry.Context.Propagation;
 
 namespace Accounting;
 
@@ -34,6 +36,7 @@ internal class Consumer : BackgroundService
     private readonly IConsumer<string, byte[]> _consumer;
     private readonly string? _dbConnectionString;
     private static readonly ActivitySource MyActivitySource = new("Accounting.Consumer");
+    private static readonly TextMapPropagator Propagator = Propagators.DefaultTextMapPropagator;
 
     public Consumer(ILogger<Consumer> logger)
     {
@@ -60,8 +63,28 @@ internal class Consumer : BackgroundService
             {
                 try
                 {
-                    using var activity = MyActivitySource.StartActivity("order-consumed",  ActivityKind.Internal);
                     var consumeResult = _consumer.Consume(stoppingToken);
+
+                    // Extract the W3C trace context injected by the producer (checkoutservice)
+                    // into the Kafka message headers, so this consumer span is a child of the
+                    // originating checkout.PlaceOrder trace.
+                    var parentContext = Propagator.Extract(
+                        default,
+                        consumeResult.Message.Headers,
+                        ExtractTraceContextFromHeaders);
+
+                    Baggage.Current = parentContext.Baggage;
+
+                    using var activity = MyActivitySource.StartActivity(
+                        "orders receive",
+                        ActivityKind.Consumer,
+                        parentContext.ActivityContext);
+
+                    activity?.SetTag("messaging.system", "kafka");
+                    activity?.SetTag("messaging.destination.name", TopicName);
+                    activity?.SetTag("messaging.operation", "receive");
+                    activity?.SetTag("messaging.kafka.consumer.group", "accounting");
+
                     ProcessMessage(consumeResult.Message);
                 }
                 catch (ConsumeException e)
@@ -136,6 +159,14 @@ internal class Consumer : BackgroundService
         catch (Exception ex)
         {
             Log.OrderParsingFailed(_logger, ex);
+        }
+    }
+
+    private static IEnumerable<string> ExtractTraceContextFromHeaders(Headers headers, string key)
+    {
+        if (headers.TryGetLastBytes(key, out var bytes))
+        {
+            yield return System.Text.Encoding.UTF8.GetString(bytes);
         }
     }
 
