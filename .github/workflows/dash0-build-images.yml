@@ -27,9 +27,16 @@ on:
       - '.github/workflows/dash0-build-images.yml'
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
+# Least privilege at the workflow level; write scopes are granted per-job.
+permissions: {}
+
+concurrency:
+  # One run per ref (or PR) at a time. Do not cancel in-progress runs on main —
+  # every merged commit should get its own immutable `<sha>-<component>` tag.
+  # On PRs, cancel superseded runs to save CI minutes since only the tip is
+  # what matters for validation.
+  group: dash0-build-images-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   IMAGE_REPO: ghcr.io/dash0-demo/opentelemetry-demo
@@ -38,6 +45,9 @@ jobs:
   build:
     name: Build ${{ matrix.component.name }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # required to checkout the repository
+      packages: write  # required to push the built image to GHCR
     strategy:
       fail-fast: false
       matrix:
