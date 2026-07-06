@@ -16,7 +16,6 @@ const InstrumentationMiddleware = (handler: NextApiHandler): NextApiHandler => {
       await runWithSpan(span, async () => handler(request, response));
       httpStatus = response.statusCode;
     } catch (error) {
-      span.recordException(error as Exception);
       span.setStatus({
         code: SpanStatusCode.ERROR,
         message: (error as Error).message,
