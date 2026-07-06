@@ -5,8 +5,7 @@ import { NextApiHandler } from 'next';
 import { context, Exception, Span, SpanStatusCode, trace } from '@opentelemetry/api';
 import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const logger = require('./logger');
+import logger from './logger';
 
 const InstrumentationMiddleware = (handler: NextApiHandler): NextApiHandler => {
   return async (request, response) => {
@@ -24,10 +23,12 @@ const InstrumentationMiddleware = (handler: NextApiHandler): NextApiHandler => {
       });
       httpStatus = 500;
 
-      // Emit a single structured log record with the full stack trace serialized
-      // into one line. Without this, Node.js / Next.js prints error.stack to
-      // stderr as raw multi-line text and the filelog receiver splits each
-      // "    at ..." frame into a separate, context-free log record.
+      // Emit one structured log record with the stack serialized into a single
+      // JSON string (pino's `err` serializer). Deliberately do NOT re-throw:
+      // re-throwing lets Next.js's default handler print `error.stack` to
+      // stderr as multi-line text, and the filelog receiver ingests each
+      // "    at ..." frame as its own severity-less record. Sending the 500
+      // ourselves keeps the stderr stream clean.
       const spanCtx = span.spanContext();
       logger.error(
         {
@@ -35,10 +36,12 @@ const InstrumentationMiddleware = (handler: NextApiHandler): NextApiHandler => {
           trace_id: spanCtx.traceId,
           span_id: spanCtx.spanId,
         },
-        'api.error',
+        'api.error'
       );
 
-      throw error;
+      if (!response.headersSent) {
+        response.status(500).json({ error: (error as Error).message });
+      }
     } finally {
       span.setAttribute(SemanticAttributes.HTTP_STATUS_CODE, httpStatus);
     }
