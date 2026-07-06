@@ -82,7 +82,21 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (Exception innerEx)
+                {
+                    // cartFailure feature flag is enabled: the bad store failed as expected.
+                    // Log the failure but degrade gracefully so checkout can complete.
+                    Activity.Current?.AddEvent(new ActivityEvent("cartFailure feature flag active: cart store unavailable, degrading gracefully"));
+                    Activity.Current?.SetTag("cart.failure.degraded", true);
+                    Activity.Current?.AddException(innerEx, new System.Collections.Generic.Dictionary<string, object?>
+                    {
+                        ["cart.failure.degraded"] = true
+                    });
+                }
             }
             else
             {
