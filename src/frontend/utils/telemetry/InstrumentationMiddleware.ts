@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { NextApiHandler } from 'next';
-import {context, Exception, Span, SpanStatusCode, trace} from '@opentelemetry/api';
+import { context, Exception, Span, SpanStatusCode, trace } from '@opentelemetry/api';
 import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
+
+import logger from './logger';
 
 const InstrumentationMiddleware = (handler: NextApiHandler): NextApiHandler => {
   return async (request, response) => {
@@ -14,10 +16,31 @@ const InstrumentationMiddleware = (handler: NextApiHandler): NextApiHandler => {
       await runWithSpan(span, async () => handler(request, response));
       httpStatus = response.statusCode;
     } catch (error) {
-      span.recordException(error as Exception);
-      span.setStatus({ code: SpanStatusCode.ERROR });
+      span.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: (error as Error).message,
+      });
       httpStatus = 500;
-      throw error;
+
+      // Emit one structured log record with the stack serialized into a single
+      // JSON string (pino's `err` serializer). Deliberately do NOT re-throw:
+      // re-throwing lets Next.js's default handler print `error.stack` to
+      // stderr as multi-line text, and the filelog receiver ingests each
+      // "    at ..." frame as its own severity-less record. Sending the 500
+      // ourselves keeps the stderr stream clean.
+      const spanCtx = span.spanContext();
+      logger.error(
+        {
+          err: error,
+          trace_id: spanCtx.traceId,
+          span_id: spanCtx.spanId,
+        },
+        'api.error'
+      );
+
+      if (!response.headersSent) {
+        response.status(500).json({ error: (error as Error).message });
+      }
     } finally {
       span.setAttribute(SemanticAttributes.HTTP_STATUS_CODE, httpStatus);
     }
