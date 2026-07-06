@@ -14,13 +14,12 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"sync"
 	"syscall"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log/global"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/IBM/sarama"
@@ -33,17 +32,10 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
+	"go.opentelemetry.io/contrib/otelconf"
 	"go.opentelemetry.io/otel"
 	otelcodes "go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
-
-	sdklog "go.opentelemetry.io/otel/sdk/log"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	sdkresource "go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -66,76 +58,9 @@ import (
 //go:generate openfeature generate -o flags --package-name flags go
 
 var (
-	logger            *slog.Logger
-	tracer            trace.Tracer
-	resource          *sdkresource.Resource
-	initResourcesOnce sync.Once
+	logger *slog.Logger
+	tracer trace.Tracer
 )
-
-func initResource() *sdkresource.Resource {
-	initResourcesOnce.Do(func() {
-		extraResources, _ := sdkresource.New(
-			context.Background(),
-			sdkresource.WithOS(),
-			sdkresource.WithProcess(),
-			sdkresource.WithContainer(),
-			sdkresource.WithHost(),
-		)
-		resource, _ = sdkresource.Merge(
-			sdkresource.Default(),
-			extraResources,
-		)
-	})
-	return resource
-}
-
-func initTracerProvider() *sdktrace.TracerProvider {
-	ctx := context.Background()
-
-	exporter, err := otlptracegrpc.New(ctx)
-	if err != nil {
-		logger.Error(fmt.Sprintf("new otlp trace grpc exporter failed: %v", err))
-	}
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(initResource()),
-	)
-	otel.SetTracerProvider(tp)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
-	return tp
-}
-
-func initMeterProvider() *sdkmetric.MeterProvider {
-	ctx := context.Background()
-
-	exporter, err := otlpmetricgrpc.New(ctx)
-	if err != nil {
-		logger.Error(fmt.Sprintf("new otlp metric grpc exporter failed: %v", err))
-	}
-
-	mp := sdkmetric.NewMeterProvider(
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)),
-		sdkmetric.WithResource(initResource()),
-	)
-	otel.SetMeterProvider(mp)
-	return mp
-}
-
-func initLoggerProvider() *sdklog.LoggerProvider {
-	ctx := context.Background()
-
-	logExporter, err := otlploggrpc.New(ctx)
-	if err != nil {
-		return nil
-	}
-
-	loggerProvider := sdklog.NewLoggerProvider(
-		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
-	)
-	global.SetLoggerProvider(loggerProvider)
-
-	return loggerProvider
-}
 
 type checkout struct {
 	productCatalogSvcAddr string
@@ -157,29 +82,30 @@ type checkout struct {
 }
 
 func main() {
+	ctx := context.Background()
+
 	var port string
 	mustMapEnv(&port, "CHECKOUT_PORT")
 
-	tp := initTracerProvider()
+	// Initialize OpenTelemetry SDK with otelconf — reads OTEL_* env vars
+	sdk, err := otelconf.NewSDK(otelconf.WithContext(ctx))
+	if err != nil {
+		// logger not yet initialised; fall back to stderr
+		fmt.Fprintf(os.Stderr, "Failed to initialize OpenTelemetry SDK: %v\n", err)
+		os.Exit(1)
+	}
 	defer func() {
-		if err := tp.Shutdown(context.Background()); err != nil {
-			logger.Error(fmt.Sprintf("Error shutting down tracer provider: %v", err))
+		if err := sdk.Shutdown(ctx); err != nil {
+			logger.Error(fmt.Sprintf("Error shutting down OpenTelemetry SDK: %v", err))
 		}
+		logger.Info("Shutdown OpenTelemetry SDK")
 	}()
 
-	mp := initMeterProvider()
-	defer func() {
-		if err := mp.Shutdown(context.Background()); err != nil {
-			logger.Error(fmt.Sprintf("Error shutting down meter provider: %v", err))
-		}
-	}()
-
-	lp := initLoggerProvider()
-	defer func() {
-		if err := lp.Shutdown(context.Background()); err != nil {
-			logger.Error(fmt.Sprintf("Error shutting down logger provider: %v", err))
-		}
-	}()
+	// Set global providers and propagator
+	otel.SetTracerProvider(sdk.TracerProvider())
+	otel.SetMeterProvider(sdk.MeterProvider())
+	global.SetLoggerProvider(sdk.LoggerProvider())
+	otel.SetTextMapPropagator(sdk.Propagator())
 
 	// this *must* be called after the logger provider is initialized
 	// otherwise the Sarama producer in kafka/producer.go will not be
@@ -187,24 +113,21 @@ func main() {
 	logger = otelslog.NewLogger("checkout")
 	slog.SetDefault(logger)
 
-	err := runtime.Start(runtime.WithMinimumReadMemStatsInterval(time.Second))
-	if err != nil {
-		logger.Error((err.Error()))
+	tracer = otel.Tracer("checkout")
+
+	if err := runtime.Start(runtime.WithMinimumReadMemStatsInterval(time.Second)); err != nil {
+		logger.Error(err.Error())
 	}
 
 	provider, err := flagd.NewProvider()
 	if err != nil {
 		logger.Error("Error creating flagd provider", slog.Any("error", err))
 	}
-
-	err = openfeature.SetProvider(provider)
-	if err != nil {
+	if err = openfeature.SetProvider(provider); err != nil {
 		logger.Error("Failed to set flagd as the provider", slog.Any("error", err))
 	}
 	defer openfeature.Shutdown()
 	openfeature.AddHooks(otelhooks.NewTracesHook())
-
-	tracer = tp.Tracer("checkout")
 
 	svc := new(checkout)
 	svc.httpClient = &http.Client{
@@ -242,7 +165,6 @@ func main() {
 	defer c.Close()
 
 	svc.kafkaBrokerSvcAddr = os.Getenv("KAFKA_ADDR")
-
 	if svc.kafkaBrokerSvcAddr != "" {
 		svc.KafkaProducerClient, err = kafka.CreateKafkaProducer([]string{svc.kafkaBrokerSvcAddr}, logger)
 		if err != nil {
@@ -265,19 +187,17 @@ func main() {
 	healthcheck := health.NewServer()
 	healthpb.RegisterHealthServer(srv, healthcheck)
 	logger.Info(fmt.Sprintf("starting to listen on tcp: %q", lis.Addr().String()))
-	err = srv.Serve(lis)
-	logger.Error(err.Error())
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGKILL)
+	sigCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGKILL)
 	defer cancel()
 
 	go func() {
 		if err := srv.Serve(lis); err != nil {
-			logger.Error(err.Error())
+			logger.Error(fmt.Sprintf("gRPC server error: %v", err))
 		}
 	}()
 
-	<-ctx.Done()
+	<-sigCtx.Done()
 
 	srv.GracefulStop()
 	logger.Info("Checkout gRPC server stopped")
@@ -486,7 +406,7 @@ func (cs *checkout) quoteShipping(ctx context.Context, address *pb.Address, item
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed POST to email service: expected 200, got %d", resp.StatusCode)
+		return nil, fmt.Errorf("failed POST to shipping service: expected 200, got %d", resp.StatusCode)
 	}
 
 	shippingQuoteBytes, err := io.ReadAll(resp.Body)
@@ -619,7 +539,7 @@ func (cs *checkout) shipOrder(ctx context.Context, address *pb.Address, items []
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed POST to email service: expected 200, got %d", resp.StatusCode)
+		return "", fmt.Errorf("failed POST to shipping service: expected 200, got %d", resp.StatusCode)
 	}
 
 	trackingRespBytes, err := io.ReadAll(resp.Body)
