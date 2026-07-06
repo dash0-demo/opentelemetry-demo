@@ -1,0 +1,90 @@
+# Fork-specific image publishing for dash0-demo/opentelemetry-demo.
+#
+# The upstream image workflows (build-images.yml, release.yml,
+# nightly-release.yml) are all gated on `!github.event.repository.fork`,
+# so this fork produces no images from them. This workflow fills that gap
+# without touching any upstream file — new filename, dash0- prefix — so
+# it never conflicts with an upstream sync.
+#
+# Publishes to GHCR under the dash0-demo org:
+#   ghcr.io/dash0-demo/opentelemetry-demo:<sha>-<component>
+#   ghcr.io/dash0-demo/opentelemetry-demo:main-<component>  (main branch only)
+#
+# Add components by extending the matrix. Kept to `frontend` for now since
+# that is the only service the fork currently patches.
+
+name: dash0-build-images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/frontend/**'
+      - '.github/workflows/dash0-build-images.yml'
+  pull_request:
+    paths:
+      - 'src/frontend/**'
+      - '.github/workflows/dash0-build-images.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_REPO: ghcr.io/dash0-demo/opentelemetry-demo
+
+jobs:
+  build:
+    name: Build ${{ matrix.component.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component:
+          - name: frontend
+            dockerfile: ./src/frontend/Dockerfile
+            context: ./
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
+
+      - name: Compute tags
+        id: tags
+        env:
+          COMPONENT: ${{ matrix.component.name }}
+          SHA: ${{ github.sha }}
+          REF: ${{ github.ref }}
+        run: |
+          {
+            echo "tags<<EOF"
+            echo "${IMAGE_REPO}:${SHA}-${COMPONENT}"
+            if [ "${REF}" = "refs/heads/main" ]; then
+              echo "${IMAGE_REPO}:main-${COMPONENT}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
+        with:
+          context: ${{ matrix.component.context }}
+          file: ${{ matrix.component.dockerfile }}
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.component.name }}
+          cache-to: type=gha,scope=${{ matrix.component.name }},mode=max
