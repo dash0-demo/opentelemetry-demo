@@ -23,6 +23,9 @@ version = "1.0"
 
 val grpcVersion = "1.81.0"
 val protobufVersion = "4.35.0"
+val otelVersion = "1.63.0"
+val otelAlphaVersion = "1.63.0-alpha"
+val otelInstrumentationAlphaVersion = "2.17.0-alpha"
 
 
 repositories {
@@ -42,9 +45,16 @@ dependencies {
     implementation("io.grpc:grpc-stub:${grpcVersion}")
     implementation("io.grpc:grpc-netty:${grpcVersion}")
     implementation("io.grpc:grpc-services:${grpcVersion}")
-    implementation("io.opentelemetry:opentelemetry-api:1.63.0")
-    implementation("io.opentelemetry:opentelemetry-sdk:1.63.0")
+    implementation("io.opentelemetry:opentelemetry-api:${otelVersion}")
+    implementation("io.opentelemetry:opentelemetry-sdk:${otelVersion}")
     implementation("io.opentelemetry:opentelemetry-extension-annotations:1.18.0")
+    // OTLP gRPC exporters for traces, metrics, and logs
+    implementation("io.opentelemetry:opentelemetry-exporter-otlp:${otelVersion}")
+    // Semantic conventions (stable + incubating)
+    implementation("io.opentelemetry.semconv:opentelemetry-semconv:1.32.0")
+    implementation("io.opentelemetry.semconv:opentelemetry-semconv-incubating:1.32.0-alpha")
+    // Log4j2 → OTel log bridge (exports log4j records as OTLP log records)
+    implementation("io.opentelemetry.instrumentation:opentelemetry-log4j-appender-2.17:${otelInstrumentationAlphaVersion}")
     implementation("org.apache.logging.log4j:log4j-core:2.26.0")
     implementation("org.slf4j:slf4j-api:2.0.18")
     implementation("com.google.protobuf:protobuf-kotlin:${protobufVersion}")

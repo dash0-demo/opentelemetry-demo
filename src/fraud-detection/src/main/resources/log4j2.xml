@@ -9,10 +9,17 @@ SPDX-License-Identifier: Apache-2.0
         <Console name="STDOUT" target="SYSTEM_OUT">
             <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg trace_id=%X{trace_id} span_id=%X{span_id} trace_flags=%X{trace_flags} %n"/>
         </Console>
+        <!--
+            Exports log records to the OTel SDK logger provider via the Log4j2 bridge.
+            OpenTelemetryAppender.install(sdk) in main.kt wires this appender to the
+            SDK at runtime so log records are emitted as OTLP log records.
+        -->
+        <OpenTelemetry name="OpenTelemetryAppender"/>
     </Appenders>
     <Loggers>
         <Root level="INFO">
             <AppenderRef ref="STDOUT"/>
+            <AppenderRef ref="OpenTelemetryAppender"/>
         </Root>
     </Loggers>
 </Configuration>
