@@ -58,16 +58,27 @@ internal class Consumer : BackgroundService
         {
             while (!stoppingToken.IsCancellationRequested)
             {
+                ConsumeResult<string, byte[]> consumeResult;
                 try
                 {
-                    using var activity = MyActivitySource.StartActivity("order-consumed",  ActivityKind.Internal);
-                    var consumeResult = _consumer.Consume(stoppingToken);
-                    ProcessMessage(consumeResult.Message);
+                    consumeResult = _consumer.Consume(stoppingToken);
                 }
                 catch (ConsumeException e)
                 {
                     Log.ConsumeError(_logger, e, e.Error.Reason);
+                    continue;
                 }
+
+                using var activity = MyActivitySource.StartActivity("order-consumed", ActivityKind.Consumer);
+                activity?.SetTag("messaging.system", "kafka");
+                activity?.SetTag("messaging.destination.name", TopicName);
+                activity?.SetTag("messaging.operation", "process");
+                if (consumeResult.Message.Key != null)
+                {
+                    activity?.SetTag("messaging.message.id", consumeResult.Message.Key);
+                }
+
+                ProcessMessage(consumeResult.Message, activity);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -80,15 +91,26 @@ internal class Consumer : BackgroundService
         }
     }
 
-    private void ProcessMessage(Message<string, byte[]> message)
+    private void ProcessMessage(Message<string, byte[]> message, Activity? parentActivity)
     {
+        using var activity = MyActivitySource.StartActivity("order.process", ActivityKind.Internal, parentActivity?.Context ?? default);
         try
         {
             var order = OrderResult.Parser.ParseFrom(message.Value);
             Log.OrderReceivedMessage(_logger, order);
 
+            activity?.SetTag("app.order.id", order.OrderId);
+            activity?.SetTag("app.order.items.count", order.Items.Count);
+            activity?.SetTag("app.order.shipping_tracking_id", order.ShippingTrackingId);
+            if (order.ShippingCost != null)
+            {
+                activity?.SetTag("app.order.shipping_cost.currency_code", order.ShippingCost.CurrencyCode);
+                activity?.SetTag("app.order.shipping_cost.units", order.ShippingCost.Units);
+            }
+
             if (_dbConnectionString == null)
             {
+                activity?.SetTag("app.order.db_persisted", false);
                 return;
             }
 
@@ -128,14 +150,18 @@ internal class Consumer : BackgroundService
             };
             dbContext.Add(shipping);
             dbContext.SaveChanges();
+            activity?.SetTag("app.order.db_persisted", true);
         }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
         {
             Log.DuplicateOrderSkipped(_logger);
+            activity?.SetTag("app.order.duplicate", true);
         }
         catch (Exception ex)
         {
             Log.OrderParsingFailed(_logger, ex);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.RecordException(ex);
         }
     }
 
