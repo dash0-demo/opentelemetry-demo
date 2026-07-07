@@ -1,3 +1,6 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
 # Fork-specific image publishing for dash0-demo/opentelemetry-demo.
 #
 # The upstream image workflows (build-images.yml, release.yml,
