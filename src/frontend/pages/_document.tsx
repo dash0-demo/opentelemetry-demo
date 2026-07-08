@@ -3,9 +3,22 @@
 
 import Document, { DocumentContext, Html, Head, Main, NextScript } from 'next/document';
 import { ServerStyleSheet } from 'styled-components';
-import {context, propagation} from "@opentelemetry/api";
 
-const { ENV_PLATFORM, WEB_OTEL_SERVICE_NAME, PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, OTEL_COLLECTOR_HOST} = process.env;
+// Server-render-time environment variables inlined into `window.ENV` for the
+// client-side Dash0 Web SDK (see utils/telemetry/DashZeroWebSdk.ts). Keeping
+// them here rather than as `NEXT_PUBLIC_*` build-time bakes lets the same
+// image work across tenants — only the deployment's env vars change.
+const {
+  ENV_PLATFORM,
+  WEB_OTEL_SERVICE_NAME,
+  PUBLIC_DASH0_WEB_SDK_ENDPOINT,
+  PUBLIC_DASH0_WEB_SDK_SERVICE_VERSION,
+  PUBLIC_DASH0_WEB_SDK_SERVICE_NAMESPACE,
+  PUBLIC_DASH0_WEB_SDK_VCS_REPO_URL,
+  PUBLIC_DASH0_WEB_SDK_VCS_HEAD_SHA,
+} = process.env;
+
+const escape = (v?: string) => (v ?? '').replace(/'/g, "\\'");
 
 export default class MyDocument extends Document<{ envString: string }> {
   static async getInitialProps(ctx: DocumentContext) {
@@ -19,19 +32,16 @@ export default class MyDocument extends Document<{ envString: string }> {
         });
 
       const initialProps = await Document.getInitialProps(ctx);
-      const baggage = propagation.getBaggage(context.active());
-      const isSyntheticRequest = baggage?.getEntry('synthetic_request')?.value === 'true';
-
-      const otlpTracesEndpoint = isSyntheticRequest
-          ? `http://${OTEL_COLLECTOR_HOST}:4318/v1/traces`
-          : PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT;
 
       const envString = `
         window.ENV = {
-          NEXT_PUBLIC_PLATFORM: '${ENV_PLATFORM}',
-          NEXT_PUBLIC_OTEL_SERVICE_NAME: '${WEB_OTEL_SERVICE_NAME}',
-          NEXT_PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: '${otlpTracesEndpoint}',
-          IS_SYNTHETIC_REQUEST: '${isSyntheticRequest}',
+          NEXT_PUBLIC_PLATFORM: '${escape(ENV_PLATFORM)}',
+          NEXT_PUBLIC_OTEL_SERVICE_NAME: '${escape(WEB_OTEL_SERVICE_NAME)}',
+          NEXT_PUBLIC_DASH0_WEB_SDK_ENDPOINT: '${escape(PUBLIC_DASH0_WEB_SDK_ENDPOINT)}',
+          NEXT_PUBLIC_DASH0_WEB_SDK_SERVICE_VERSION: '${escape(PUBLIC_DASH0_WEB_SDK_SERVICE_VERSION)}',
+          NEXT_PUBLIC_DASH0_WEB_SDK_SERVICE_NAMESPACE: '${escape(PUBLIC_DASH0_WEB_SDK_SERVICE_NAMESPACE)}',
+          NEXT_PUBLIC_DASH0_WEB_SDK_VCS_REPO_URL: '${escape(PUBLIC_DASH0_WEB_SDK_VCS_REPO_URL)}',
+          NEXT_PUBLIC_DASH0_WEB_SDK_VCS_HEAD_SHA: '${escape(PUBLIC_DASH0_WEB_SDK_VCS_HEAD_SHA)}',
         };`;
       return {
         ...initialProps,
