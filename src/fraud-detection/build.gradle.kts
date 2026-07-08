@@ -23,6 +23,8 @@ version = "1.0"
 
 val grpcVersion = "1.81.0"
 val protobufVersion = "4.35.0"
+val otelVersion = "1.63.0"
+val otelSemconvVersion = "1.34.0-alpha"
 
 
 repositories {
@@ -42,9 +44,15 @@ dependencies {
     implementation("io.grpc:grpc-stub:${grpcVersion}")
     implementation("io.grpc:grpc-netty:${grpcVersion}")
     implementation("io.grpc:grpc-services:${grpcVersion}")
-    implementation("io.opentelemetry:opentelemetry-api:1.63.0")
-    implementation("io.opentelemetry:opentelemetry-sdk:1.63.0")
+    implementation("io.opentelemetry:opentelemetry-api:${otelVersion}")
+    implementation("io.opentelemetry:opentelemetry-sdk:${otelVersion}")
     implementation("io.opentelemetry:opentelemetry-extension-annotations:1.18.0")
+    // SDK autoconfigure reads OTEL_* env vars and bootstraps TracerProvider,
+    // MeterProvider, and LoggerProvider — including OTLP gRPC exporters.
+    implementation("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:${otelVersion}")
+    implementation("io.opentelemetry:opentelemetry-exporter-otlp:${otelVersion}")
+    // Stable semantic conventions for messaging / Kafka span attributes.
+    implementation("io.opentelemetry.semconv:opentelemetry-semconv:${otelSemconvVersion}")
     implementation("org.apache.logging.log4j:log4j-core:2.26.0")
     implementation("org.slf4j:slf4j-api:2.0.18")
     implementation("com.google.protobuf:protobuf-kotlin:${protobufVersion}")
