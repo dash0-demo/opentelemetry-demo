@@ -13,9 +13,11 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -366,11 +368,11 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 		attribute.String("demo.product.id", req.Id),
 	)
 
-	// GetProduct will fail on a specific product when feature flag is enabled
+	// GetProduct will fail on a specific set of products, at a configurable
+	// rate, when the productCatalogFailure feature flag is enabled.
 	if p.checkProductFailure(ctx, req.Id) {
 		msg := "Error: Product Catalog Fail Feature Flag Enabled"
 		span.SetStatus(otelcodes.Error, msg)
-		span.AddEvent(msg)
 		return nil, status.Error(codes.Internal, msg)
 	}
 
@@ -378,11 +380,9 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 	if err != nil {
 		msg := fmt.Sprintf("Product Not Found: %s", req.Id)
 		span.SetStatus(otelcodes.Error, msg)
-		span.AddEvent(msg)
 		return nil, status.Error(codes.NotFound, msg)
 	}
 
-	span.AddEvent("Product Found")
 	span.SetAttributes(
 		attribute.String("demo.product.id", req.Id),
 		attribute.String("demo.product.name", found.Name),
@@ -413,6 +413,56 @@ func (p *productCatalog) SearchProducts(ctx context.Context, req *pb.SearchProdu
 	return &pb.SearchProductsResponse{Results: result}, nil
 }
 
+// failingProductIDs is the set of product SKUs that get error injection when
+// the productCatalogFailure feature flag is on. The set is hardcoded (rather
+// than driven by flagd targeting) so demo operators can toggle failures with
+// a single boolean flag while the code owns which SKUs are affected.
+var failingProductIDs = map[string]struct{}{
+	"OLJCESPC7Z": {}, // National Park Foundation Explorascope 60mm
+	"L9ECAV7KIM": {}, // Terrarium
+	"6E92ZMYYFZ": {}, // Optical Tube Assembly
+	"9SIQT8TOJO": {}, // Solar System Color Imager
+	"HQTGWGPNH4": {}, // Solar Filter
+}
+
+// productCatalogFailurePercent is the percentage of GetProduct calls (against
+// the SKUs in failingProductIDs) that return an internal error when the
+// productCatalogFailure flag is on. Read once at startup from the env var
+// PRODUCT_CATALOG_FAILURE_PERCENT (0..100). Defaults to 100 — matching the
+// pre-config behaviour where the flag being on meant every affected request
+// failed. Values outside 0..100 are clamped.
+var productCatalogFailurePercent = readFailurePercentFromEnv()
+
+func readFailurePercentFromEnv() int {
+	raw := os.Getenv("PRODUCT_CATALOG_FAILURE_PERCENT")
+	if raw == "" {
+		return 100
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return 100
+	}
+	if v < 0 {
+		return 0
+	}
+	if v > 100 {
+		return 100
+	}
+	return v
+}
+
 func (p *productCatalog) checkProductFailure(ctx context.Context, id string) bool {
-	return flags.ProductCatalogFailure.Value(ctx, openfeature.NewTargetlessEvaluationContext(map[string]any{"product_id": id}))
+	if _, targeted := failingProductIDs[id]; !targeted {
+		return false
+	}
+	if !flags.ProductCatalogFailure.Value(ctx, openfeature.NewTargetlessEvaluationContext(map[string]any{"product_id": id})) {
+		return false
+	}
+	if productCatalogFailurePercent >= 100 {
+		return true
+	}
+	if productCatalogFailurePercent <= 0 {
+		return false
+	}
+	return rand.IntN(100) < productCatalogFailurePercent
 }
