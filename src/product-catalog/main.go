@@ -234,7 +234,11 @@ func main() {
 	}()
 
 	openfeature.AddHooks(otelhooks.NewTracesHook())
-	provider, err := flagd.NewProvider()
+	// WithOtelInterceptor installs otelconnect on the underlying Connect RPC
+	// client so each flagd evaluation emits a CLIENT span. Without it the
+	// service map has no edge from product-catalog to flagd, even though
+	// every GetProduct call resolves productCatalogFailure over gRPC.
+	provider, err := flagd.NewProvider(flagd.WithOtelInterceptor(true))
 	if err != nil {
 		logger.Error("Error creating flagd provider", slog.Any("error", err))
 	}
