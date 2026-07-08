@@ -19,6 +19,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,12 +27,19 @@ import (
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
-	"go.opentelemetry.io/contrib/otelconf"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	sdkresource "go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 	"go.opentelemetry.io/otel/trace"
 
@@ -55,13 +63,82 @@ type productCatalog struct {
 }
 
 var (
-	logger *slog.Logger
-	db     *sql.DB
-	reg    metric.Registration
+	logger            *slog.Logger
+	resource          *sdkresource.Resource
+	initResourcesOnce sync.Once
+	db                *sql.DB
+	reg               metric.Registration
 )
 
 func init() {
 	logger = otelslog.NewLogger("product-catalog")
+}
+
+// initResource builds the SDK resource once, merging the OTel Default
+// resource (which honours OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES)
+// with process/host/container/OS detectors. Matches the pre-otelconf pattern
+// this service used at upstream v2.2.0 so an env-var-only chart configuration
+// (OTEL_EXPORTER_OTLP_ENDPOINT + OTEL_RESOURCE_ATTRIBUTES + OTEL_SERVICE_NAME)
+// keeps working.
+func initResource() *sdkresource.Resource {
+	initResourcesOnce.Do(func() {
+		extraResources, _ := sdkresource.New(
+			context.Background(),
+			sdkresource.WithOS(),
+			sdkresource.WithProcess(),
+			sdkresource.WithContainer(),
+			sdkresource.WithHost(),
+		)
+		resource, _ = sdkresource.Merge(
+			sdkresource.Default(),
+			extraResources,
+		)
+	})
+	return resource
+}
+
+func initTracerProvider() *sdktrace.TracerProvider {
+	ctx := context.Background()
+	exporter, err := otlptracegrpc.New(ctx)
+	if err != nil {
+		logger.Error(fmt.Sprintf("OTLP Trace gRPC creation: %v", err))
+	}
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(initResource()),
+	)
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+	return tp
+}
+
+func initMeterProvider() *sdkmetric.MeterProvider {
+	ctx := context.Background()
+	exporter, err := otlpmetricgrpc.New(ctx)
+	if err != nil {
+		logger.Error(fmt.Sprintf("OTLP metric gRPC creation: %v", err))
+	}
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)),
+		sdkmetric.WithResource(initResource()),
+	)
+	otel.SetMeterProvider(mp)
+	return mp
+}
+
+func initLoggerProvider() *sdklog.LoggerProvider {
+	ctx := context.Background()
+	logExporter, err := otlploggrpc.New(ctx)
+	if err != nil {
+		logger.Error(fmt.Sprintf("OTLP log gRPC creation: %v", err))
+		return nil
+	}
+	lp := sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
+		sdklog.WithResource(initResource()),
+	)
+	global.SetLoggerProvider(lp)
+	return lp
 }
 
 func initDatabase() error {
@@ -103,24 +180,36 @@ func initDatabase() error {
 func main() {
 	ctx := context.Background()
 
-	// Initialize OpenTelemetry SDK with otelconf
-	sdk, err := otelconf.NewSDK(otelconf.WithContext(ctx))
-	if err != nil {
-		logger.Error(fmt.Sprintf("Failed to initialize OpenTelemetry SDK: %v", err))
-		os.Exit(1)
-	}
+	// Initialize OpenTelemetry SDK.
+	//
+	// NOTE (dash0-demo fork): upstream migrated this init to
+	// `otelconf.NewSDK(WithContext(ctx))`, which is a no-op unless
+	// `OTEL_CONFIG_FILE` points at a YAML config file. The
+	// opentelemetry-demo Helm chart (v0.40.9, appVersion v2.2.0) only
+	// sets `OTEL_EXPORTER_OTLP_ENDPOINT` — which the otelconf init
+	// doesn't consume — so every chart-based deployment gets zero
+	// telemetry. We keep the pre-otelconf init pattern until the chart
+	// mounts the OTel config file (as upstream's compose.yaml does).
+	// Re-sync this section against upstream on chart-version bumps.
+	tp := initTracerProvider()
+	mp := initMeterProvider()
+	lp := initLoggerProvider()
 	defer func() {
-		if err := sdk.Shutdown(ctx); err != nil {
-			logger.Error(fmt.Sprintf("Error shutting down OpenTelemetry SDK: %v", err))
+		if err := tp.Shutdown(ctx); err != nil {
+			logger.Error(fmt.Sprintf("Error shutting down tracer provider: %v", err))
 		}
-		logger.Info("Shutdown OpenTelemetry SDK")
+		logger.Info("Shutdown tracer provider")
+		if err := mp.Shutdown(ctx); err != nil {
+			logger.Error(fmt.Sprintf("Error shutting down meter provider: %v", err))
+		}
+		logger.Info("Shutdown meter provider")
+		if lp != nil {
+			if err := lp.Shutdown(ctx); err != nil {
+				logger.Error(fmt.Sprintf("Error shutting down logger provider: %v", err))
+			}
+			logger.Info("Shutdown logger provider")
+		}
 	}()
-
-	// Set global providers and propagator
-	otel.SetTracerProvider(sdk.TracerProvider())
-	otel.SetMeterProvider(sdk.MeterProvider())
-	global.SetLoggerProvider(sdk.LoggerProvider())
-	otel.SetTextMapPropagator(sdk.Propagator())
 
 	// Initialize database connection
 	if err := initDatabase(); err != nil {
