@@ -13,8 +13,9 @@
 #   ghcr.io/dash0-demo/opentelemetry-demo:<sha>-<component>
 #   ghcr.io/dash0-demo/opentelemetry-demo:main-<component>  (main branch only)
 #
-# Add components by extending the matrix. Kept to `frontend` for now since
-# that is the only service the fork currently patches.
+# Add components by extending the matrix below, and add their source
+# directories to the `paths` filters so pushes and PRs that touch them
+# actually trigger a build.
 
 name: dash0-build-images
 
@@ -23,10 +24,12 @@ on:
     branches: [main]
     paths:
       - 'src/frontend/**'
+      - 'src/product-catalog/**'
       - '.github/workflows/dash0-build-images.yml'
   pull_request:
     paths:
       - 'src/frontend/**'
+      - 'src/product-catalog/**'
       - '.github/workflows/dash0-build-images.yml'
   workflow_dispatch:
 
@@ -57,6 +60,9 @@ jobs:
         component:
           - name: frontend
             dockerfile: ./src/frontend/Dockerfile
+            context: ./
+          - name: product-catalog
+            dockerfile: ./src/product-catalog/Dockerfile
             context: ./
     steps:
       - name: Checkout
