@@ -17,7 +17,7 @@
 import { init, identify, addSignalAttribute } from '@dash0/sdk-web';
 import SessionGateway from '../../gateways/Session.gateway';
 
-const DashZeroWebSdk = () => {
+const Dash0WebSdk = () => {
   if (typeof window === 'undefined') return;
 
   const env = window.ENV || {};
@@ -68,4 +68,4 @@ const DashZeroWebSdk = () => {
   }
 };
 
-export default DashZeroWebSdk;
+export default Dash0WebSdk;

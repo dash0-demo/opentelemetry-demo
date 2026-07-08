@@ -8,7 +8,7 @@ import CurrencyProvider from '../providers/Currency.provider';
 import CartProvider from '../providers/Cart.provider';
 import { ThemeProvider } from 'styled-components';
 import Theme from '../styles/Theme';
-import DashZeroWebSdk from '../utils/telemetry/DashZeroWebSdk';
+import Dash0WebSdk from '../utils/telemetry/Dash0WebSdk';
 import SessionGateway from '../gateways/Session.gateway';
 import { OpenFeatureProvider, OpenFeature } from '@openfeature/react-sdk';
 import { FlagdWebProvider } from '@openfeature/flagd-web-provider';
@@ -28,7 +28,7 @@ declare global {
 }
 
 if (typeof window !== 'undefined') {
-  DashZeroWebSdk();
+  Dash0WebSdk();
   if (window.location) {
     const session = SessionGateway.getSession();
 

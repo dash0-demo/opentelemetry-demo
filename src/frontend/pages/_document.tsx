@@ -18,8 +18,6 @@ const {
   PUBLIC_DASH0_WEB_SDK_VCS_HEAD_SHA,
 } = process.env;
 
-const escape = (v?: string) => (v ?? '').replace(/'/g, "\\'");
-
 export default class MyDocument extends Document<{ envString: string }> {
   static async getInitialProps(ctx: DocumentContext) {
     const sheet = new ServerStyleSheet();
@@ -33,16 +31,18 @@ export default class MyDocument extends Document<{ envString: string }> {
 
       const initialProps = await Document.getInitialProps(ctx);
 
-      const envString = `
-        window.ENV = {
-          NEXT_PUBLIC_PLATFORM: '${escape(ENV_PLATFORM)}',
-          NEXT_PUBLIC_OTEL_SERVICE_NAME: '${escape(WEB_OTEL_SERVICE_NAME)}',
-          NEXT_PUBLIC_DASH0_WEB_SDK_ENDPOINT: '${escape(PUBLIC_DASH0_WEB_SDK_ENDPOINT)}',
-          NEXT_PUBLIC_DASH0_WEB_SDK_SERVICE_VERSION: '${escape(PUBLIC_DASH0_WEB_SDK_SERVICE_VERSION)}',
-          NEXT_PUBLIC_DASH0_WEB_SDK_SERVICE_NAMESPACE: '${escape(PUBLIC_DASH0_WEB_SDK_SERVICE_NAMESPACE)}',
-          NEXT_PUBLIC_DASH0_WEB_SDK_VCS_REPO_URL: '${escape(PUBLIC_DASH0_WEB_SDK_VCS_REPO_URL)}',
-          NEXT_PUBLIC_DASH0_WEB_SDK_VCS_HEAD_SHA: '${escape(PUBLIC_DASH0_WEB_SDK_VCS_HEAD_SHA)}',
-        };`;
+      // JSON.stringify handles all string escaping (quotes, backslashes,
+      // newlines, control chars) safely — and its output is valid JS too,
+      // so we can drop it verbatim into a <script> body.
+      const envString = `window.ENV = ${JSON.stringify({
+        NEXT_PUBLIC_PLATFORM: ENV_PLATFORM ?? '',
+        NEXT_PUBLIC_OTEL_SERVICE_NAME: WEB_OTEL_SERVICE_NAME ?? '',
+        NEXT_PUBLIC_DASH0_WEB_SDK_ENDPOINT: PUBLIC_DASH0_WEB_SDK_ENDPOINT ?? '',
+        NEXT_PUBLIC_DASH0_WEB_SDK_SERVICE_VERSION: PUBLIC_DASH0_WEB_SDK_SERVICE_VERSION ?? '',
+        NEXT_PUBLIC_DASH0_WEB_SDK_SERVICE_NAMESPACE: PUBLIC_DASH0_WEB_SDK_SERVICE_NAMESPACE ?? '',
+        NEXT_PUBLIC_DASH0_WEB_SDK_VCS_REPO_URL: PUBLIC_DASH0_WEB_SDK_VCS_REPO_URL ?? '',
+        NEXT_PUBLIC_DASH0_WEB_SDK_VCS_HEAD_SHA: PUBLIC_DASH0_WEB_SDK_VCS_HEAD_SHA ?? '',
+      })};`;
       return {
         ...initialProps,
         styles: [initialProps.styles, sheet.getStyleElement()],
