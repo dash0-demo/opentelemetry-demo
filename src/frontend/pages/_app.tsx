@@ -8,7 +8,7 @@ import CurrencyProvider from '../providers/Currency.provider';
 import CartProvider from '../providers/Cart.provider';
 import { ThemeProvider } from 'styled-components';
 import Theme from '../styles/Theme';
-import FrontendTracer from '../utils/telemetry/FrontendTracer';
+import Dash0WebSdk from '../utils/telemetry/Dash0WebSdk';
 import SessionGateway from '../gateways/Session.gateway';
 import { OpenFeatureProvider, OpenFeature } from '@openfeature/react-sdk';
 import { FlagdWebProvider } from '@openfeature/flagd-web-provider';
@@ -18,14 +18,17 @@ declare global {
     ENV: {
       NEXT_PUBLIC_PLATFORM?: string;
       NEXT_PUBLIC_OTEL_SERVICE_NAME?: string;
-      NEXT_PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?: string;
-      IS_SYNTHETIC_REQUEST?: string;
+      NEXT_PUBLIC_DASH0_WEB_SDK_ENDPOINT?: string;
+      NEXT_PUBLIC_DASH0_WEB_SDK_SERVICE_VERSION?: string;
+      NEXT_PUBLIC_DASH0_WEB_SDK_SERVICE_NAMESPACE?: string;
+      NEXT_PUBLIC_DASH0_WEB_SDK_VCS_REPO_URL?: string;
+      NEXT_PUBLIC_DASH0_WEB_SDK_VCS_HEAD_SHA?: string;
     };
   }
 }
 
 if (typeof window !== 'undefined') {
-  FrontendTracer();
+  Dash0WebSdk();
   if (window.location) {
     const session = SessionGateway.getSession();
 
