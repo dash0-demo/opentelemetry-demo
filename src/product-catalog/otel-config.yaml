@@ -1,0 +1,53 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+# OpenTelemetry SDK configuration file consumed by otelconf.NewSDK via the
+# OTEL_CONFIG_FILE env var (baked into the Dockerfile). This exists because
+# product-catalog's main.go was migrated to otelconf between upstream v2.2.0
+# and current, and otelconf's SDK is a no-op without a config file — so an
+# environment that only sets OTEL_EXPORTER_OTLP_ENDPOINT (like the demo Helm
+# chart v0.40.9 / appVersion 2.2.0) gets zero telemetry.
+#
+# Values are resolved from env vars at startup via otelconf's ${VAR} and
+# ${VAR:-default} syntax, so the same config file works across deployments
+# that differ only in the collector endpoint.
+
+file_format: "1.0"
+disabled: false
+log_level: info
+
+logger_provider:
+  processors:
+    - batch:
+        exporter:
+          otlp_grpc:
+            endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+
+meter_provider:
+  readers:
+    - periodic:
+        exporter:
+          otlp_grpc:
+            endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+            temporality_preference: ${OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE:-cumulative}
+
+tracer_provider:
+  processors:
+    - batch:
+        exporter:
+          otlp_grpc:
+            endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+
+propagator:
+  composite:
+    - tracecontext:
+    - baggage:
+
+resource:
+  attributes_list: ${OTEL_RESOURCE_ATTRIBUTES}
+  detection/development:
+    detectors:
+      - container:
+      - host:
+      - process:
+      - service:

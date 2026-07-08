@@ -26,5 +26,13 @@ WORKDIR /usr/src/app/
 COPY --from=builder /usr/src/app/product-catalog/ ./
 COPY --from=grpc-health-probe /ko-app/grpc-health-probe /bin/grpc_health_probe
 
+# otelconf reads this file at startup and would otherwise return a no-op SDK
+# if unset. Baking it into the image (rather than relying on a chart-side
+# volume mount like upstream's compose.yaml does) keeps environments that
+# don't wire a mount — like the opentelemetry-demo Helm chart v0.40.9 —
+# working out of the box. See otel-config.yaml for the ${VAR} substitutions.
+COPY ./src/product-catalog/otel-config.yaml /otel-config.yaml
+ENV OTEL_CONFIG_FILE=/otel-config.yaml
+
 EXPOSE ${PRODUCT_CATALOG_PORT}
 ENTRYPOINT [ "./product-catalog" ]
