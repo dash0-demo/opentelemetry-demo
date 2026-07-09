@@ -177,18 +177,35 @@ public class ValkeyCartStore : ICartStore
     public async Task EmptyCartAsync(string userId)
     {
         Log.EmptyCartAsync(_logger, userId);
-        try
-        {
-            EnsureRedisConnected();
-            var db = _redis.GetDatabase();
 
-            // Update the cache with empty cart for given user
-            await db.HashSetAsync(userId, new[] { new HashEntry(CartFieldName, _emptyCartBytes) });
-            await db.KeyExpireAsync(userId, TimeSpan.FromMinutes(60));
-        }
-        catch (Exception ex)
+        // Retry up to 3 times with a short back-off to tolerate transient
+        // Redis reconnect events (ConnectionFailed flips _isRedisConnectionOpened
+        // to false; ConnectionRestored flips it back, but there can be a brief
+        // window in between where EnsureRedisConnected throws).
+        const int maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            throw new RpcException(new Status(StatusCode.FailedPrecondition, $"Can't access cart storage. {ex}"));
+            try
+            {
+                EnsureRedisConnected();
+                var db = _redis.GetDatabase();
+
+                // Update the cache with empty cart for given user
+                await db.HashSetAsync(userId, new[] { new HashEntry(CartFieldName, _emptyCartBytes) });
+                await db.KeyExpireAsync(userId, TimeSpan.FromMinutes(60));
+                return;
+            }
+            catch (Exception ex) when (attempt < maxAttempts)
+            {
+                Log.RedisInternalError(_logger, ex);
+                await Task.Delay(TimeSpan.FromMilliseconds(200 * attempt));
+                // Reset the connection flag so EnsureRedisConnected reopens it.
+                _isRedisConnectionOpened = false;
+            }
+            catch (Exception ex)
+            {
+                throw new RpcException(new Status(StatusCode.FailedPrecondition, $"Can't access cart storage. {ex}"));
+            }
         }
     }
 
