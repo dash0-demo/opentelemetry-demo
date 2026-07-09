@@ -458,34 +458,46 @@ func (p *productCatalog) ListProducts(ctx context.Context, req *pb.Empty) (*pb.L
 func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductRequest) (*pb.Product, error) {
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(
-		attribute.String("demo.product.id", req.Id),
+		attribute.String("app.product.id", req.Id),
 	)
 
 	// GetProduct will fail on a specific set of products, at a configurable
 	// rate, when the productCatalogFailure feature flag is enabled.
 	if p.checkProductFailure(ctx, req.Id) {
-		msg := "Error: Product Catalog Fail Feature Flag Enabled"
+		msg := fmt.Sprintf("Product Id Lookup Failed: %s", req.Id)
 		span.SetStatus(otelcodes.Error, msg)
+		span.AddEvent(msg)
+		logger.LogAttrs(
+			ctx,
+			slog.LevelError, msg,
+			slog.String("app.product.id", req.Id),
+		)
 		return nil, status.Error(codes.Internal, msg)
 	}
 
 	found, err := getProductFromDB(ctx, req.Id)
 	if err != nil {
-		msg := fmt.Sprintf("Product Not Found: %s", req.Id)
+		msg := fmt.Sprintf("Product Id Not Found: %s", req.Id)
 		span.SetStatus(otelcodes.Error, msg)
+		span.AddEvent(msg)
+		logger.LogAttrs(
+			ctx,
+			slog.LevelError, msg,
+			slog.String("app.product.id", req.Id),
+		)
 		return nil, status.Error(codes.NotFound, msg)
 	}
 
 	span.SetAttributes(
-		attribute.String("demo.product.id", req.Id),
-		attribute.String("demo.product.name", found.Name),
+		attribute.String("app.product.id", req.Id),
+		attribute.String("app.product.name", found.Name),
 	)
 
 	logger.LogAttrs(
 		ctx,
 		slog.LevelInfo, "Product Found",
-		slog.String("demo.product.name", found.Name),
-		slog.String("demo.product.id", req.Id),
+		slog.String("app.product.name", found.Name),
+		slog.String("app.product.id", req.Id),
 	)
 
 	return found, nil
