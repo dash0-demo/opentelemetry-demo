@@ -457,35 +457,43 @@ func (p *productCatalog) ListProducts(ctx context.Context, req *pb.Empty) (*pb.L
 
 func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductRequest) (*pb.Product, error) {
 	span := trace.SpanFromContext(ctx)
+
+	// Strip any non-alphanumeric characters (e.g. stray '}' from template
+	// rendering bugs in callers) so a malformed ID like "OLJCESPC7Z}" is
+	// normalised to "OLJCESPC7Z" before the DB lookup and attribute recording.
+	productID := strings.TrimFunc(req.Id, func(r rune) bool {
+		return !('A' <= r && r <= 'Z' || 'a' <= r && r <= 'z' || '0' <= r && r <= '9')
+	})
+
 	span.SetAttributes(
-		attribute.String("demo.product.id", req.Id),
+		attribute.String("app.product.id", productID),
 	)
 
 	// GetProduct will fail on a specific set of products, at a configurable
 	// rate, when the productCatalogFailure feature flag is enabled.
-	if p.checkProductFailure(ctx, req.Id) {
+	if p.checkProductFailure(ctx, productID) {
 		msg := "Error: Product Catalog Fail Feature Flag Enabled"
 		span.SetStatus(otelcodes.Error, msg)
 		return nil, status.Error(codes.Internal, msg)
 	}
 
-	found, err := getProductFromDB(ctx, req.Id)
+	found, err := getProductFromDB(ctx, productID)
 	if err != nil {
-		msg := fmt.Sprintf("Product Not Found: %s", req.Id)
+		msg := fmt.Sprintf("Product Not Found: %s", productID)
 		span.SetStatus(otelcodes.Error, msg)
 		return nil, status.Error(codes.NotFound, msg)
 	}
 
 	span.SetAttributes(
-		attribute.String("demo.product.id", req.Id),
-		attribute.String("demo.product.name", found.Name),
+		attribute.String("app.product.id", productID),
+		attribute.String("app.product.name", found.Name),
 	)
 
 	logger.LogAttrs(
 		ctx,
 		slog.LevelInfo, "Product Found",
-		slog.String("demo.product.name", found.Name),
-		slog.String("demo.product.id", req.Id),
+		slog.String("app.product.name", found.Name),
+		slog.String("app.product.id", productID),
 	)
 
 	return found, nil
