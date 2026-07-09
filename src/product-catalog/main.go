@@ -457,16 +457,29 @@ func (p *productCatalog) ListProducts(ctx context.Context, req *pb.Empty) (*pb.L
 
 func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductRequest) (*pb.Product, error) {
 	span := trace.SpanFromContext(ctx)
+
+	// Validate the product ID: must be non-empty and contain only
+	// alphanumeric characters (no stray punctuation like trailing '}').
+	if req.Id == "" || strings.ContainsAny(req.Id, "{}[]()<>\"'\\/ \t\n") {
+		msg := fmt.Sprintf("invalid product ID: %q", req.Id)
+		span.SetStatus(otelcodes.Error, msg)
+		logger.LogAttrs(ctx, slog.LevelWarn, "Rejected invalid product ID",
+			slog.String("app.product.id", req.Id))
+		return nil, status.Error(codes.InvalidArgument, msg)
+	}
+
 	span.SetAttributes(
-		attribute.String("demo.product.id", req.Id),
+		attribute.String("app.product.id", req.Id),
 	)
 
 	// GetProduct will fail on a specific set of products, at a configurable
 	// rate, when the productCatalogFailure feature flag is enabled.
 	if p.checkProductFailure(ctx, req.Id) {
-		msg := "Error: Product Catalog Fail Feature Flag Enabled"
+		msg := fmt.Sprintf("Product Id Lookup Failed: %s", req.Id)
 		span.SetStatus(otelcodes.Error, msg)
-		return nil, status.Error(codes.Internal, msg)
+		logger.LogAttrs(ctx, slog.LevelError, msg,
+			slog.String("app.product.id", req.Id))
+		return nil, status.Error(codes.NotFound, msg)
 	}
 
 	found, err := getProductFromDB(ctx, req.Id)
