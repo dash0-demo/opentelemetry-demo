@@ -457,27 +457,40 @@ func (p *productCatalog) ListProducts(ctx context.Context, req *pb.Empty) (*pb.L
 
 func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductRequest) (*pb.Product, error) {
 	span := trace.SpanFromContext(ctx)
+
+	// Sanitize the product ID: strip any non-alphanumeric characters that can
+	// appear when a route-template placeholder (e.g. "{productId}") is
+	// incorrectly forwarded as the literal request value instead of the real
+	// path segment. Observed in production as IDs like "OLJCESPC7Z}" causing
+	// "Product Id Lookup Failed" errors because the DB query finds no match.
+	productId := strings.Map(func(r rune) rune {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return -1
+	}, req.Id)
+
 	span.SetAttributes(
-		attribute.String("demo.product.id", req.Id),
+		attribute.String("demo.product.id", productId),
 	)
 
 	// GetProduct will fail on a specific set of products, at a configurable
 	// rate, when the productCatalogFailure feature flag is enabled.
-	if p.checkProductFailure(ctx, req.Id) {
+	if p.checkProductFailure(ctx, productId) {
 		msg := "Error: Product Catalog Fail Feature Flag Enabled"
 		span.SetStatus(otelcodes.Error, msg)
 		return nil, status.Error(codes.Internal, msg)
 	}
 
-	found, err := getProductFromDB(ctx, req.Id)
+	found, err := getProductFromDB(ctx, productId)
 	if err != nil {
-		msg := fmt.Sprintf("Product Not Found: %s", req.Id)
+		msg := fmt.Sprintf("Product Not Found: %s", productId)
 		span.SetStatus(otelcodes.Error, msg)
 		return nil, status.Error(codes.NotFound, msg)
 	}
 
 	span.SetAttributes(
-		attribute.String("demo.product.id", req.Id),
+		attribute.String("demo.product.id", productId),
 		attribute.String("demo.product.name", found.Name),
 	)
 
@@ -485,7 +498,7 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 		ctx,
 		slog.LevelInfo, "Product Found",
 		slog.String("demo.product.name", found.Name),
-		slog.String("demo.product.id", req.Id),
+		slog.String("demo.product.id", productId),
 	)
 
 	return found, nil
