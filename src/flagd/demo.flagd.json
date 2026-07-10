@@ -2,27 +2,13 @@
   "$schema": "https://flagd.dev/schema/v0/flags.json",
   "flags": {
     "productCatalogFailure": {
-      "description": "Fail product catalog service on a specific product",
+      "description": "Arm-switch for product catalog failure injection. When enabled, GetProduct returns an internal error for a hardcoded set of product SKUs at a configurable rate (PRODUCT_CATALOG_FAILURE_PERCENT env var, 0-100, default 100). SKU targeting is owned by the service binary, not by flagd.",
       "state": "ENABLED",
       "variants": {
         "on": true,
         "off": false
       },
-      "defaultVariant": "off",
-      "targeting": {
-        "if": [
-          {
-            "==": [
-              {
-                "var": "product_id"
-              },
-              "OLJCESPC7Z"
-            ]
-          },
-          "off",
-          "off"
-        ]
-      }
+      "defaultVariant": "off"
     },
     "recommendationCacheFailure": {
       "description": "Fail recommendation service cache",
