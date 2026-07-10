@@ -472,6 +472,7 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 	}, req.Id)
 
 	span.SetAttributes(
+		attribute.String("app.product.id", productId),
 		attribute.String("demo.product.id", productId),
 	)
 
@@ -480,6 +481,9 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 	if p.checkProductFailure(ctx, productId) {
 		msg := "Error: Product Catalog Fail Feature Flag Enabled"
 		span.SetStatus(otelcodes.Error, msg)
+		span.AddEvent("Product Id Lookup Failed",
+			trace.WithAttributes(attribute.String("app.product.id", productId)),
+		)
 		return nil, status.Error(codes.Internal, msg)
 	}
 
@@ -487,6 +491,9 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 	if err != nil {
 		msg := fmt.Sprintf("Product Not Found: %s", productId)
 		span.SetStatus(otelcodes.Error, msg)
+		span.AddEvent("Product Id Not Found",
+			trace.WithAttributes(attribute.String("app.product.id", productId)),
+		)
 		return nil, status.Error(codes.NotFound, msg)
 	}
 
