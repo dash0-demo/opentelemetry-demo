@@ -82,7 +82,18 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException ex)
+                {
+                    // The bad store is unavailable; log the failure and fall back to the
+                    // healthy store so the checkout flow is not interrupted.
+                    activity?.AddEvent(new("cartFailure store unavailable, falling back to healthy store",
+                        tags: new ActivityTagsCollection { { "exception.message", ex.Message } }));
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
