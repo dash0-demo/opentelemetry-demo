@@ -20,7 +20,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log/global"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	"go.opentelemetry.io/otel/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/IBM/sarama"
@@ -70,6 +71,10 @@ var (
 	tracer            trace.Tracer
 	resource          *sdkresource.Resource
 	initResourcesOnce sync.Once
+
+	// Business metrics recorded on each successfully placed order.
+	ordersPlacedCounter  metric.Int64Counter
+	orderAmountHistogram metric.Float64Histogram
 )
 
 func initResource() *sdkresource.Resource {
@@ -135,6 +140,35 @@ func initLoggerProvider() *sdklog.LoggerProvider {
 	global.SetLoggerProvider(loggerProvider)
 
 	return loggerProvider
+}
+
+// initBusinessMetrics creates the application-level metric instruments used to
+// track order activity. It must be called after initMeterProvider so that the
+// global MeterProvider is set.
+func initBusinessMetrics() error {
+	meter := otel.Meter("checkout")
+
+	var err error
+	ordersPlacedCounter, err = meter.Int64Counter(
+		"demo.orders.placed",
+		metric.WithDescription("Number of orders successfully placed"),
+		metric.WithUnit("{order}"),
+	)
+	if err != nil {
+		return fmt.Errorf("creating demo.orders.placed counter: %w", err)
+	}
+
+	orderAmountHistogram, err = meter.Float64Histogram(
+		"demo.order.amount",
+		metric.WithDescription("Total monetary value of successfully placed orders in USD"),
+		metric.WithUnit("USD"),
+		metric.WithExplicitBucketBoundaries(1, 5, 10, 25, 50, 100, 250, 500, 1000),
+	)
+	if err != nil {
+		return fmt.Errorf("creating demo.order.amount histogram: %w", err)
+	}
+
+	return nil
 }
 
 type checkout struct {
@@ -205,6 +239,10 @@ func main() {
 	openfeature.AddHooks(otelhooks.NewTracesHook())
 
 	tracer = tp.Tracer("checkout")
+
+	if err := initBusinessMetrics(); err != nil {
+		logger.Error(fmt.Sprintf("failed to initialise business metrics: %v", err))
+	}
 
 	svc := new(checkout)
 	svc.httpClient = &http.Client{
@@ -390,6 +428,15 @@ func (cs *checkout) PlaceOrder(ctx context.Context, req *pb.PlaceOrderRequest) (
 		slog.Int("demo.order.items.count", len(prep.orderItems)),
 		slog.String("demo.shipping.tracking.id", shippingTrackingID),
 	)
+
+	// Record business metrics. These mirror the span attributes above so that
+	// order volume and revenue can be queried directly from metrics without
+	// having to aggregate over individual traces.
+	metricAttrs := metric.WithAttributes(
+		attribute.String("demo.user_context.selected_currency", req.UserCurrency),
+	)
+	ordersPlacedCounter.Add(ctx, 1, metricAttrs)
+	orderAmountHistogram.Record(ctx, totalPriceFloat, metricAttrs)
 
 	if err := cs.sendOrderConfirmation(ctx, req.Email, orderResult); err != nil {
 		logger.Warn(fmt.Sprintf("failed to send order confirmation: %+v", err))
@@ -665,7 +712,7 @@ func (cs *checkout) sendToPostProcessor(ctx context.Context, result *pb.OrderRes
 			span.SetAttributes(
 				attribute.Bool("messaging.kafka.producer.success", true),
 				attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
-				attribute.KeyValue(semconv.MessagingKafkaMessageOffset(int(successMsg.Offset))),
+				attribute.KeyValue(semconv.MessagingKafkaOffset(int(successMsg.Offset))),
 			)
 			logger.Info(fmt.Sprintf("Successful to write message. offset: %v, duration: %v", successMsg.Offset, time.Since(startTime)))
 		case errMsg := <-cs.KafkaProducerClient.Errors():
@@ -716,8 +763,7 @@ func createProducerSpan(ctx context.Context, msg *sarama.ProducerMessage) trace.
 			semconv.NetworkTransportTCP,
 			semconv.MessagingSystemKafka,
 			semconv.MessagingDestinationName(msg.Topic),
-			semconv.MessagingOperationPublish,
-			semconv.MessagingKafkaDestinationPartition(int(msg.Partition)),
+			semconv.MessagingOperationTypeSend,
 		),
 	)
 
