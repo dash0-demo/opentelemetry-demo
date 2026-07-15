@@ -12,14 +12,20 @@
       "targeting": {
         "if": [
           {
-            "==": [
+            "in": [
               {
                 "var": "product_id"
               },
-              "OLJCESPC7Z"
+              [
+                "OLJCESPC7Z",
+                "L9ECAV7KIM",
+                "6E92ZMYYFZ",
+                "9SIQT8TOJO",
+                "HQTGWGPNH4"
+              ]
             ]
           },
-          "off",
+          "on",
           "off"
         ]
       }
