@@ -478,9 +478,10 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 	// GetProduct will fail on a specific set of products, at a configurable
 	// rate, when the productCatalogFailure feature flag is enabled.
 	if p.checkProductFailure(ctx, productId) {
-		msg := "Error: Product Catalog Fail Feature Flag Enabled"
+		msg := fmt.Sprintf("Product Id Lookup Failed: %s", productId)
 		span.SetStatus(otelcodes.Error, msg)
-		return nil, status.Error(codes.Internal, msg)
+		span.AddEvent(msg)
+		return nil, status.Error(codes.NotFound, msg)
 	}
 
 	found, err := getProductFromDB(ctx, productId)
