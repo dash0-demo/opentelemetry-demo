@@ -398,9 +398,10 @@ func (cs *checkout) PlaceOrder(ctx context.Context, req *pb.PlaceOrderRequest) (
 	}
 
 	// send to kafka only if kafka broker address is set
+	// Run asynchronously so Kafka acknowledgment latency does not block the gRPC response
 	if cs.kafkaBrokerSvcAddr != "" {
 		logger.Info("sending to postProcessor")
-		cs.sendToPostProcessor(ctx, orderResult)
+		go cs.sendToPostProcessor(context.WithoutCancel(ctx), orderResult)
 	}
 
 	resp := &pb.PlaceOrderResponse{Order: orderResult}
@@ -656,6 +657,10 @@ func (cs *checkout) sendToPostProcessor(ctx context.Context, result *pb.OrderRes
 	span := createProducerSpan(ctx, &msg)
 	defer span.End()
 
+	// Use a bounded timeout for Kafka publish to avoid blocking indefinitely
+	kafkaCtx, kafkaCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer kafkaCancel()
+
 	// Send message and handle response
 	startTime := time.Now()
 	select {
@@ -675,21 +680,21 @@ func (cs *checkout) sendToPostProcessor(ctx context.Context, result *pb.OrderRes
 			)
 			span.SetStatus(otelcodes.Error, errMsg.Err.Error())
 			logger.Error(fmt.Sprintf("Failed to write message: %v", errMsg.Err))
-		case <-ctx.Done():
+		case <-kafkaCtx.Done():
 			span.SetAttributes(
 				attribute.Bool("messaging.kafka.producer.success", false),
 				attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
 			)
-			span.SetStatus(otelcodes.Error, "Context cancelled: "+ctx.Err().Error())
-			logger.Warn(fmt.Sprintf("Context canceled before success message received: %v", ctx.Err()))
+			span.SetStatus(otelcodes.Error, "Context cancelled: "+kafkaCtx.Err().Error())
+			logger.Warn(fmt.Sprintf("Context canceled before success message received: %v", kafkaCtx.Err()))
 		}
-	case <-ctx.Done():
+	case <-kafkaCtx.Done():
 		span.SetAttributes(
 			attribute.Bool("messaging.kafka.producer.success", false),
 			attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
 		)
-		span.SetStatus(otelcodes.Error, "Failed to send: "+ctx.Err().Error())
-		logger.Error(fmt.Sprintf("Failed to send message to Kafka within context deadline: %v", ctx.Err()))
+		span.SetStatus(otelcodes.Error, "Failed to send: "+kafkaCtx.Err().Error())
+		logger.Error(fmt.Sprintf("Failed to send message to Kafka within context deadline: %v", kafkaCtx.Err()))
 		return
 	}
 
