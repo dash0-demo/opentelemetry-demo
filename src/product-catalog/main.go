@@ -477,10 +477,19 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 
 	// GetProduct will fail on a specific set of products, at a configurable
 	// rate, when the productCatalogFailure feature flag is enabled.
+	// Use codes.FailedPrecondition (not codes.Internal) so callers and
+	// observability tooling can distinguish intentional demo fault-injection
+	// from genuine infrastructure failures. Internal should be reserved for
+	// unexpected server-side errors.
 	if p.checkProductFailure(ctx, productId) {
-		msg := "Error: Product Catalog Fail Feature Flag Enabled"
+		msg := fmt.Sprintf("Product Id Lookup Failed: %s", productId)
+		span.AddEvent(msg)
 		span.SetStatus(otelcodes.Error, msg)
-		return nil, status.Error(codes.Internal, msg)
+		logger.LogAttrs(ctx, slog.LevelError, msg,
+			slog.String("demo.product.id", productId),
+			slog.String("error.type", "feature_flag_fault_injection"),
+		)
+		return nil, status.Error(codes.FailedPrecondition, msg)
 	}
 
 	found, err := getProductFromDB(ctx, productId)
