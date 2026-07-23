@@ -486,7 +486,10 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 	found, err := getProductFromDB(ctx, productId)
 	if err != nil {
 		msg := fmt.Sprintf("Product Not Found: %s", productId)
-		span.SetStatus(otelcodes.Error, msg)
+		// NotFound is a valid application response (e.g. stale product ID in a
+		// user's cart). Do not set span status ERROR - the service handled the
+		// request correctly; the caller supplied an unknown ID.
+		span.AddEvent(msg)
 		return nil, status.Error(codes.NotFound, msg)
 	}
 
