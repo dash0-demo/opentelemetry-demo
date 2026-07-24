@@ -80,8 +80,10 @@ public class CartService : Oteldemo.CartService.CartServiceBase
 
         try
         {
-            if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
+            var cartFailureEnabled = await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false);
+            if (cartFailureEnabled)
             {
+                activity?.SetTag("feature_flag.cartFailure", "true");
                 await _badCartStore.EmptyCartAsync(request.UserId);
             }
             else
@@ -91,8 +93,8 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         }
         catch (RpcException ex)
         {
-            Activity.Current?.AddException(ex);
-            Activity.Current?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.AddException(ex);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             throw;
         }
 
