@@ -14,13 +14,11 @@ public class CartService : Oteldemo.CartService.CartServiceBase
 {
     private static readonly Empty Empty = new();
     private readonly Random random = new Random();
-    private readonly ICartStore _badCartStore;
     private readonly ICartStore _cartStore;
     private readonly IFeatureClient _featureFlagHelper;
 
-    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService)
+    public CartService(ICartStore cartStore, IFeatureClient featureFlagService)
     {
-        _badCartStore = badCartStore;
         _cartStore = cartStore;
         _featureFlagHelper = featureFlagService;
     }
@@ -35,7 +33,6 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         try
         {
             await _cartStore.AddItemAsync(request.UserId, request.Item.ProductId, request.Item.Quantity);
-
             return Empty;
         }
         catch (RpcException ex)
@@ -61,7 +58,6 @@ public class CartService : Oteldemo.CartService.CartServiceBase
                 totalCart += item.Quantity;
             }
             activity?.SetTag("demo.cart.items.count", totalCart);
-
             return cart;
         }
         catch (RpcException ex)
@@ -80,14 +76,7 @@ public class CartService : Oteldemo.CartService.CartServiceBase
 
         try
         {
-            if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
-            {
-                await _badCartStore.EmptyCartAsync(request.UserId);
-            }
-            else
-            {
-                await _cartStore.EmptyCartAsync(request.UserId);
-            }
+            await _cartStore.EmptyCartAsync(request.UserId);
         }
         catch (RpcException ex)
         {
