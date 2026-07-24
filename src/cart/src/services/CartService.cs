@@ -80,7 +80,11 @@ public class CartService : Oteldemo.CartService.CartServiceBase
 
         try
         {
-            if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
+            var cartFailureEnabled = await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false);
+            activity?.SetTag("feature_flag.key", "cartFailure");
+            activity?.SetTag("feature_flag.variant", cartFailureEnabled ? "on" : "off");
+
+            if (cartFailureEnabled)
             {
                 await _badCartStore.EmptyCartAsync(request.UserId);
             }
