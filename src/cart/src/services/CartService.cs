@@ -7,6 +7,7 @@ using Grpc.Core;
 using cart.cartstore;
 using OpenFeature;
 using Oteldemo;
+using Microsoft.Extensions.Logging;
 
 namespace cart.services;
 
@@ -17,12 +18,14 @@ public class CartService : Oteldemo.CartService.CartServiceBase
     private readonly ICartStore _badCartStore;
     private readonly ICartStore _cartStore;
     private readonly IFeatureClient _featureFlagHelper;
+    private readonly ILogger<CartService> _logger;
 
-    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService)
+    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService, ILogger<CartService> logger)
     {
         _badCartStore = badCartStore;
         _cartStore = cartStore;
         _featureFlagHelper = featureFlagService;
+        _logger = logger;
     }
 
     public override async Task<Empty> AddItem(AddItemRequest request, ServerCallContext context)
@@ -82,15 +85,18 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                // Intentional failure path: routes to a bad store to simulate Redis unavailability.
-                // If the bad store throws, fall back to the real store so checkout can proceed.
+                // Intentional fault injection: attempt the bad store to trigger observability signals.
+                // If it fails, record the exception on the span and fall back to the healthy store
+                // so the user's cart is still emptied (the demo scenario is observed, not user-impacting).
                 try
                 {
                     await _badCartStore.EmptyCartAsync(request.UserId);
                 }
-                catch (RpcException)
+                catch (RpcException ex)
                 {
-                    // Chaos injection failed as expected; use the real store as fallback.
+                    Activity.Current?.AddException(ex);
+                    Activity.Current?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                    _logger.LogWarning(ex, "cartFailure feature flag is enabled: bad store threw {StatusCode}, falling back to healthy store for user {UserId}", ex.StatusCode, request.UserId);
                     await _cartStore.EmptyCartAsync(request.UserId);
                 }
             }
