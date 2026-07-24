@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System;
 using Grpc.Core;
 using cart.cartstore;
+using Microsoft.Extensions.Logging;
 using OpenFeature;
 using Oteldemo;
 
@@ -17,12 +18,14 @@ public class CartService : Oteldemo.CartService.CartServiceBase
     private readonly ICartStore _badCartStore;
     private readonly ICartStore _cartStore;
     private readonly IFeatureClient _featureFlagHelper;
+    private readonly ILogger<CartService> _logger;
 
-    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService)
+    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService, ILogger<CartService> logger)
     {
         _badCartStore = badCartStore;
         _cartStore = cartStore;
         _featureFlagHelper = featureFlagService;
+        _logger = logger;
     }
 
     public override async Task<Empty> AddItem(AddItemRequest request, ServerCallContext context)
@@ -82,7 +85,20 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    // Attempt the bad store to generate an observable error signal,
+                    // but fall back to the real store so checkout is not blocked.
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "cartFailure feature flag active: bad cart store threw, falling back to primary store");
+                    activity?.SetTag("cart.failure.simulated", true);
+                    activity?.AddException(ex);
+                    // Fall back to the real store so the order can complete.
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
