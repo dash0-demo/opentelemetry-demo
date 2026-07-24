@@ -58,6 +58,11 @@ public class ValkeyCartStore : ICartStore
         _redisConnectionOptions.ReconnectRetryPolicy = new ExponentialRetry(1000);
 
         _redisConnectionOptions.KeepAlive = 180;
+
+        // Limit connection timeout so that a bad/unreachable host fails fast
+        // instead of blocking request threads for the full TCP timeout period.
+        _redisConnectionOptions.ConnectTimeout = 2000;
+        _redisConnectionOptions.SyncTimeout = 2000;
     }
 
     public ConnectionMultiplexer GetConnection()
