@@ -20,6 +20,7 @@ public class ValkeyCartStore : ICartStore
 
     private volatile ConnectionMultiplexer _redis;
     private volatile bool _isRedisConnectionOpened;
+    private volatile bool _connectionPermanentlyFailed;
 
     private readonly object _locker = new();
     private readonly byte[] _emptyCartBytes;
@@ -78,12 +79,24 @@ public class ValkeyCartStore : ICartStore
             return;
         }
 
+        // Fast-fail if the connection previously failed permanently (e.g. invalid host).
+        // This avoids blocking every caller on a full exponential-backoff reconnect attempt.
+        if (_connectionPermanentlyFailed)
+        {
+            throw new ApplicationException("Wasn't able to connect to redis");
+        }
+
         // Connection is closed or failed - open a new one but only at the first thread
         lock (_locker)
         {
             if (_isRedisConnectionOpened)
             {
                 return;
+            }
+
+            if (_connectionPermanentlyFailed)
+            {
+                throw new ApplicationException("Wasn't able to connect to redis");
             }
 
             Log.RedisConnecting(_logger, _connectionString);
@@ -93,6 +106,10 @@ public class ValkeyCartStore : ICartStore
             if (_redis == null || !_redis.IsConnected)
             {
                 Log.RedisConnectionFailed(_logger);
+
+                // Mark as permanently failed so subsequent callers get an immediate error
+                // instead of blocking on a full retry cycle.
+                _connectionPermanentlyFailed = true;
 
                 // We weren't able to connect to Redis despite some retries with exponential backoff.
                 throw new ApplicationException("Wasn't able to connect to redis");
