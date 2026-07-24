@@ -117,6 +117,9 @@ public class ValkeyCartStore : ICartStore
             {
                 Log.RedisConnectionLost(_logger);
                 _isRedisConnectionOpened = false;
+                // Null out the connection so EnsureRedisConnected() creates a fresh
+                // ConnectionMultiplexer on the next call instead of reusing the broken one.
+                _redis = null;
             };
 
             _isRedisConnectionOpened = true;
