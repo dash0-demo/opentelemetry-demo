@@ -86,7 +86,26 @@ public class ValkeyCartStore : ICartStore
                 return;
             }
 
+            // If an existing multiplexer is present and has auto-reconnected (StackExchange.Redis
+            // reconnects internally when abortConnect=false and ConnectRetry > 0), reuse it rather
+            // than creating a new one. Creating a new ConnectionMultiplexer while the old one is
+            // still alive leads to resource leaks and may fail with "Wasn't able to connect to
+            // redis" if Redis is momentarily unavailable during the reconnect window.
+            if (_redis != null && _redis.IsConnected)
+            {
+                _isRedisConnectionOpened = true;
+                Log.RedisConnectionRestored(_logger);
+                return;
+            }
+
             Log.RedisConnecting(_logger, _connectionString);
+
+            // Dispose the old (broken) multiplexer before creating a new one.
+            if (_redis != null)
+            {
+                try { _redis.Dispose(); } catch { /* best-effort */ }
+                _redis = null;
+            }
 
             _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
 
