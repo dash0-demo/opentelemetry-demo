@@ -88,6 +88,14 @@ public class ValkeyCartStore : ICartStore
 
             Log.RedisConnecting(_logger, _connectionString);
 
+            // Dispose stale connection before creating a new one to avoid resource leaks
+            // when EnsureRedisConnected is called after a ConnectionFailed event.
+            if (_redis != null)
+            {
+                try { _redis.Dispose(); } catch { /* best-effort dispose */ }
+                _redis = null;
+            }
+
             _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
 
             if (_redis == null || !_redis.IsConnected)
@@ -116,6 +124,9 @@ public class ValkeyCartStore : ICartStore
             _redis.ConnectionFailed += (_, _) =>
             {
                 Log.RedisConnectionLost(_logger);
+                // Setting _isRedisConnectionOpened = false causes the next call to
+                // EnsureRedisConnected to re-enter the lock, dispose the stale
+                // ConnectionMultiplexer and establish a fresh connection.
                 _isRedisConnectionOpened = false;
             };
 
