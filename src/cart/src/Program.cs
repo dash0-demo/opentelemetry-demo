@@ -57,7 +57,10 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
 builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
-        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234"),
+        // failFast=true: fault-injection store for the cartFailure feature flag.
+        // Uses an unreachable host and zero retries so failures are immediate
+        // rather than hanging for ~30 s while the client retries.
+        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234", failFast: true),
         x.GetRequiredService<IFeatureClient>()
 ));
 
