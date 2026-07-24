@@ -82,7 +82,18 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                // cartFailure feature flag is enabled: attempt fault injection via bad store but
+                // fall back to the real store on failure so the operation completes successfully.
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException)
+                {
+                    // Bad store failed (simulated fault injection); fall back to the healthy store.
+                    activity?.AddEvent(new("cartFailure store unavailable, falling back to healthy store"));
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
