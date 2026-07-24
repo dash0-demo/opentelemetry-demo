@@ -32,6 +32,9 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Error, EventName = "cart.redis.internal_error", Message = "Redis internal error")]
     public static partial void RedisInternalError(ILogger logger, Exception exception);
 
+    [LoggerMessage(Level = LogLevel.Warning, EventName = "cart.redis.waiting_for_reconnect", Message = "Redis connection not yet restored, waiting (attempt {attempt}/{maxAttempts})")]
+    public static partial void RedisWaitingForReconnect(ILogger logger, int attempt, int maxAttempts);
+
     [LoggerMessage(Level = LogLevel.Information, EventName = "cart.add_item", Message = "AddItemAsync called with userId={userId}, productId={productId}, quantity={quantity}")]
     public static partial void AddItemAsync(ILogger logger, string userId, string productId, int quantity);
 
