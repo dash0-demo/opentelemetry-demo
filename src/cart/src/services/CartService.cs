@@ -86,6 +86,7 @@ public class CartService : Oteldemo.CartService.CartServiceBase
                 {
                     await _badCartStore.EmptyCartAsync(request.UserId);
                 }
+<<<<<<< HEAD
                 catch (RpcException ex)
                 {
                     // Record the fault-injection error for observability, then fall back to the
