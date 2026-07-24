@@ -17,6 +17,7 @@ public class ValkeyCartStore : ICartStore
     private readonly ILogger _logger;
     private const string CartFieldName = "cart";
     private const int RedisRetryNumber = 30;
+    private const int RedisRetryNumberFast = 1;
 
     private volatile ConnectionMultiplexer _redis;
     private volatile bool _isRedisConnectionOpened;
@@ -43,7 +44,7 @@ public class ValkeyCartStore : ICartStore
         });
     private readonly ConfigurationOptions _redisConnectionOptions;
 
-    public ValkeyCartStore(ILogger<ValkeyCartStore> logger, string valkeyAddress)
+    public ValkeyCartStore(ILogger<ValkeyCartStore> logger, string valkeyAddress, bool fastFail = false)
     {
         _logger = logger;
         // Serialize empty cart into byte array.
@@ -53,8 +54,10 @@ public class ValkeyCartStore : ICartStore
 
         _redisConnectionOptions = ConfigurationOptions.Parse(_connectionString);
 
-        // Try to reconnect multiple times if the first retry fails.
-        _redisConnectionOptions.ConnectRetry = RedisRetryNumber;
+        // Use a single retry for failure-injection stores so they fail fast and don't block the
+        // calling thread with 30 exponential-backoff attempts (which can cause cascading latency
+        // when the cartFailure feature flag is enabled).
+        _redisConnectionOptions.ConnectRetry = fastFail ? RedisRetryNumberFast : RedisRetryNumber;
         _redisConnectionOptions.ReconnectRetryPolicy = new ExponentialRetry(1000);
 
         _redisConnectionOptions.KeepAlive = 180;
