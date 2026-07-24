@@ -82,7 +82,19 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException ex)
+                {
+                    // cartFailure feature flag is enabled but the bad store is unavailable.
+                    // Fall back to the healthy store so checkout can complete successfully.
+                    activity?.AddEvent(new("cartFailure feature flag active but bad store unavailable; falling back to healthy store"));
+                    activity?.SetTag("cart.failure.fallback", true);
+                    Activity.Current?.AddException(ex);
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
@@ -99,3 +111,4 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         return Empty;
     }
 }
+
