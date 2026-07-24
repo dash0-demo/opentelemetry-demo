@@ -88,11 +88,21 @@ public class ValkeyCartStore : ICartStore
 
             Log.RedisConnecting(_logger, _connectionString);
 
-            _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
+            try
+            {
+                _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
+            }
+            catch (Exception)
+            {
+                // Ensure the flag stays false so the next call triggers a fresh reconnect attempt.
+                _isRedisConnectionOpened = false;
+                throw;
+            }
 
             if (_redis == null || !_redis.IsConnected)
             {
                 Log.RedisConnectionFailed(_logger);
+                _isRedisConnectionOpened = false;
 
                 // We weren't able to connect to Redis despite some retries with exponential backoff.
                 throw new ApplicationException("Wasn't able to connect to redis");
@@ -177,18 +187,29 @@ public class ValkeyCartStore : ICartStore
     public async Task EmptyCartAsync(string userId)
     {
         Log.EmptyCartAsync(_logger, userId);
-        try
+        const int maxAttempts = 2;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            EnsureRedisConnected();
-            var db = _redis.GetDatabase();
+            try
+            {
+                EnsureRedisConnected();
+                var db = _redis.GetDatabase();
 
-            // Update the cache with empty cart for given user
-            await db.HashSetAsync(userId, new[] { new HashEntry(CartFieldName, _emptyCartBytes) });
-            await db.KeyExpireAsync(userId, TimeSpan.FromMinutes(60));
-        }
-        catch (Exception ex)
-        {
-            throw new RpcException(new Status(StatusCode.FailedPrecondition, $"Can't access cart storage. {ex}"));
+                // Update the cache with empty cart for given user
+                await db.HashSetAsync(userId, new[] { new HashEntry(CartFieldName, _emptyCartBytes) });
+                await db.KeyExpireAsync(userId, TimeSpan.FromMinutes(60));
+                return;
+            }
+            catch (ApplicationException) when (attempt < maxAttempts)
+            {
+                // Redis connection lost; reset the connection flag and retry once after a short delay.
+                _isRedisConnectionOpened = false;
+                await Task.Delay(TimeSpan.FromMilliseconds(200));
+            }
+            catch (Exception ex)
+            {
+                throw new RpcException(new Status(StatusCode.FailedPrecondition, $"Can't access cart storage. {ex}"));
+            }
         }
     }
 
