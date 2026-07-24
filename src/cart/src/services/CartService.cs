@@ -7,6 +7,7 @@ using Grpc.Core;
 using cart.cartstore;
 using OpenFeature;
 using Oteldemo;
+using Microsoft.Extensions.Logging;
 
 namespace cart.services;
 
@@ -17,12 +18,14 @@ public class CartService : Oteldemo.CartService.CartServiceBase
     private readonly ICartStore _badCartStore;
     private readonly ICartStore _cartStore;
     private readonly IFeatureClient _featureFlagHelper;
+    private readonly ILogger<CartService> _logger;
 
-    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService)
+    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService, ILogger<CartService> logger)
     {
         _badCartStore = badCartStore;
         _cartStore = cartStore;
         _featureFlagHelper = featureFlagService;
+        _logger = logger;
     }
 
     public override async Task<Empty> AddItem(AddItemRequest request, ServerCallContext context)
@@ -82,7 +85,24 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                // Simulate a storage failure for observability demos: attempt the bad store to
+                // produce an error span, then fall back to the healthy store so checkout is not
+                // broken for end users.
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException ex)
+                {
+                    _logger.LogWarning(ex, "cartFailure flag is on: bad cart store failed (expected), falling back to healthy store");
+                    Activity.Current?.AddException(ex);
+                    Activity.Current?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                    // Reset the span status after successful fallback so the parent span does not
+                    // propagate the error up to checkout.
+                    Activity.Current?.SetStatus(ActivityStatusCode.Unset);
+                    return Empty;
+                }
             }
             else
             {
