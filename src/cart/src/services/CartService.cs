@@ -82,14 +82,15 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
+                // Intentional failure path: routes to a bad store to simulate Redis unavailability.
+                // If the bad store throws, fall back to the real store so checkout can proceed.
                 try
                 {
                     await _badCartStore.EmptyCartAsync(request.UserId);
                 }
                 catch (RpcException)
                 {
-                    // Bad store failed as expected under cartFailure flag; fall back to the real store.
-                    activity?.SetTag("cart.failure.fallback", true);
+                    // Chaos injection failed as expected; use the real store as fallback.
                     await _cartStore.EmptyCartAsync(request.UserId);
                 }
             }
