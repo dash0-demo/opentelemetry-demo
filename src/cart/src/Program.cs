@@ -58,7 +58,8 @@ builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
         new FailingCartStore(),
-        x.GetRequiredService<IFeatureClient>()
+        x.GetRequiredService<IFeatureClient>(),
+        x.GetRequiredService<ILogger<cart.services.CartService>>()
 ));
 
 
