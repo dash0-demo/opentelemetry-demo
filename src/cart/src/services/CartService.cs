@@ -7,6 +7,7 @@ using Grpc.Core;
 using cart.cartstore;
 using OpenFeature;
 using Oteldemo;
+using Microsoft.Extensions.Logging;
 
 namespace cart.services;
 
@@ -17,12 +18,14 @@ public class CartService : Oteldemo.CartService.CartServiceBase
     private readonly ICartStore _badCartStore;
     private readonly ICartStore _cartStore;
     private readonly IFeatureClient _featureFlagHelper;
+    private readonly ILogger<CartService> _logger;
 
-    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService)
+    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService, ILogger<CartService> logger)
     {
         _badCartStore = badCartStore;
         _cartStore = cartStore;
         _featureFlagHelper = featureFlagService;
+        _logger = logger;
     }
 
     public override async Task<Empty> AddItem(AddItemRequest request, ServerCallContext context)
@@ -82,7 +85,16 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                _logger.LogWarning("cartFailure feature flag is enabled — attempting bad cart store for fault injection");
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException ex)
+                {
+                    _logger.LogError(ex, "Bad cart store failed during fault injection; falling back to primary store");
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
