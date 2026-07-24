@@ -88,14 +88,26 @@ public class ValkeyCartStore : ICartStore
 
             Log.RedisConnecting(_logger, _connectionString);
 
-            _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
+            try
+            {
+                _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
+            }
+            catch (Exception ex)
+            {
+                Log.RedisConnectionFailed(_logger);
+                throw new RpcException(
+                    new Status(StatusCode.Unavailable, $"Cart service is currently unavailable. Unable to connect to Redis: {ex.Message}"),
+                    ex.Message);
+            }
 
             if (_redis == null || !_redis.IsConnected)
             {
                 Log.RedisConnectionFailed(_logger);
 
                 // We weren't able to connect to Redis despite some retries with exponential backoff.
-                throw new ApplicationException("Wasn't able to connect to redis");
+                throw new RpcException(
+                    new Status(StatusCode.Unavailable, "Cart service is currently unavailable. Wasn't able to connect to Redis"),
+                    "Wasn't able to connect to Redis");
             }
 
             Log.RedisConnected(_logger);
@@ -164,9 +176,13 @@ public class ValkeyCartStore : ICartStore
             await db.HashSetAsync(userId, new[]{ new HashEntry(CartFieldName, cart.ToByteArray()) });
             await db.KeyExpireAsync(userId, TimeSpan.FromMinutes(60));
         }
+        catch (RpcException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
-            throw new RpcException(new Status(StatusCode.FailedPrecondition, $"Can't access cart storage. {ex}"));
+            throw new RpcException(new Status(StatusCode.Unavailable, $"Can't access cart storage. {ex}"));
         }
         finally
         {
@@ -186,9 +202,13 @@ public class ValkeyCartStore : ICartStore
             await db.HashSetAsync(userId, new[] { new HashEntry(CartFieldName, _emptyCartBytes) });
             await db.KeyExpireAsync(userId, TimeSpan.FromMinutes(60));
         }
+        catch (RpcException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
-            throw new RpcException(new Status(StatusCode.FailedPrecondition, $"Can't access cart storage. {ex}"));
+            throw new RpcException(new Status(StatusCode.Unavailable, $"Can't access cart storage. {ex}"));
         }
     }
 
@@ -215,9 +235,13 @@ public class ValkeyCartStore : ICartStore
             // We decided to return empty cart in cases when user wasn't in the cache before
             return new Oteldemo.Cart();
         }
+        catch (RpcException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
-            throw new RpcException(new Status(StatusCode.FailedPrecondition, $"Can't access cart storage. {ex}"));
+            throw new RpcException(new Status(StatusCode.Unavailable, $"Can't access cart storage. {ex}"));
         }
         finally
         {
