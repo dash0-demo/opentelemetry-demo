@@ -82,7 +82,19 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (Exception ex)
+                {
+                    // Fault injection store is unreachable -- fall back to the healthy store so the
+                    // user operation succeeds. The exception is recorded as a span event for
+                    // observability without surfacing a gRPC error to the caller.
+                    activity?.AddEvent(new ActivityEvent("cart.fault_injection.fallback",
+                        tags: new ActivityTagsCollection { ["exception.message"] = ex.Message }));
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
