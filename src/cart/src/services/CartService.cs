@@ -82,7 +82,22 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                // cartFailure feature flag is enabled: simulate a cart storage failure.
+                // Fall back to the good store after recording the simulated error so that
+                // the EmptyCart operation still succeeds for the user.
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (Exception simulatedEx)
+                {
+                    activity?.AddEvent(new("cartFailure feature flag triggered", tags: new ActivityTagsCollection
+                    {
+                        { "exception.message", simulatedEx.Message }
+                    }));
+                    // Fall back to the real store so the checkout flow is not broken
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
