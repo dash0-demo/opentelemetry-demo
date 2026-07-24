@@ -35,6 +35,10 @@ if (string.IsNullOrEmpty(valkeyAddress))
     Environment.Exit(1);
 }
 
+// CART_FAULT_INJECTION_HOST is an intentionally unreachable address used by the
+// cartFailure feature flag to simulate a Redis connection failure on EmptyCart.
+string faultInjectionHost = builder.Configuration["CART_FAULT_INJECTION_HOST"] ?? "badhost:1234";
+
 builder.Logging
     .AddOpenTelemetry(options => options.AddOtlpExporter())
     .AddConsole();
@@ -57,8 +61,10 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
 builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
-        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234"),
-        x.GetRequiredService<IFeatureClient>()
+        // Intentional fault injection store — used when cartFailure feature flag is enabled
+        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), faultInjectionHost),
+        x.GetRequiredService<IFeatureClient>(),
+        x.GetRequiredService<ILogger<cart.services.CartService>>()
 ));
 
 
