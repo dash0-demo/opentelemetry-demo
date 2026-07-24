@@ -21,6 +21,11 @@ public class ValkeyCartStore : ICartStore
     private volatile ConnectionMultiplexer _redis;
     private volatile bool _isRedisConnectionOpened;
 
+    // Circuit-breaker: track last connection failure to avoid hammering a bad host
+    private volatile bool _connectionFailed;
+    private DateTime _lastConnectionFailureTime = DateTime.MinValue;
+    private static readonly TimeSpan ConnectionRetryBackoff = TimeSpan.FromSeconds(5);
+
     private readonly object _locker = new();
     private readonly byte[] _emptyCartBytes;
     private readonly string _connectionString;
@@ -78,6 +83,14 @@ public class ValkeyCartStore : ICartStore
             return;
         }
 
+        // Circuit-breaker: if connection previously failed, wait before retrying to avoid
+        // flooding a bad host with connection attempts on every cart request.
+        if (_connectionFailed && DateTime.UtcNow - _lastConnectionFailureTime < ConnectionRetryBackoff)
+        {
+            throw new ApplicationException(
+                $"Wasn't able to connect to redis (backing off until {_lastConnectionFailureTime + ConnectionRetryBackoff:u})");
+        }
+
         // Connection is closed or failed - open a new one but only at the first thread
         lock (_locker)
         {
@@ -88,16 +101,29 @@ public class ValkeyCartStore : ICartStore
 
             Log.RedisConnecting(_logger, _connectionString);
 
-            _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
+            try
+            {
+                _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
+            }
+            catch (Exception ex)
+            {
+                _connectionFailed = true;
+                _lastConnectionFailureTime = DateTime.UtcNow;
+                Log.RedisConnectionFailed(_logger);
+                throw new ApplicationException("Wasn't able to connect to redis", ex);
+            }
 
             if (_redis == null || !_redis.IsConnected)
             {
+                _connectionFailed = true;
+                _lastConnectionFailureTime = DateTime.UtcNow;
                 Log.RedisConnectionFailed(_logger);
 
                 // We weren't able to connect to Redis despite some retries with exponential backoff.
                 throw new ApplicationException("Wasn't able to connect to redis");
             }
 
+            _connectionFailed = false;
             Log.RedisConnected(_logger);
             var cache = _redis.GetDatabase();
 
@@ -111,12 +137,15 @@ public class ValkeyCartStore : ICartStore
             _redis.ConnectionRestored += (_, _) =>
             {
                 _isRedisConnectionOpened = true;
+                _connectionFailed = false;
                 Log.RedisConnectionRestored(_logger);
             };
             _redis.ConnectionFailed += (_, _) =>
             {
                 Log.RedisConnectionLost(_logger);
                 _isRedisConnectionOpened = false;
+                _connectionFailed = true;
+                _lastConnectionFailureTime = DateTime.UtcNow;
             };
 
             _isRedisConnectionOpened = true;
