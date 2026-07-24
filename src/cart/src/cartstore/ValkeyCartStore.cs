@@ -88,7 +88,15 @@ public class ValkeyCartStore : ICartStore
 
             Log.RedisConnecting(_logger, _connectionString);
 
-            _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
+            try
+            {
+                _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
+            }
+            catch (RedisConnectionException ex)
+            {
+                Log.RedisConnectionFailed(_logger);
+                throw new ApplicationException($"Wasn't able to connect to redis: {ex.Message}", ex);
+            }
 
             if (_redis == null || !_redis.IsConnected)
             {
