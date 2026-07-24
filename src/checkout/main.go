@@ -398,9 +398,10 @@ func (cs *checkout) PlaceOrder(ctx context.Context, req *pb.PlaceOrderRequest) (
 	}
 
 	// send to kafka only if kafka broker address is set
+	// Run asynchronously so Kafka back-pressure does not block the gRPC response.
 	if cs.kafkaBrokerSvcAddr != "" {
-		logger.Info("sending to postProcessor")
-		cs.sendToPostProcessor(ctx, orderResult)
+		logger.Info("sending to postProcessor (async)")
+		go cs.sendToPostProcessor(context.WithoutCancel(ctx), orderResult)
 	}
 
 	resp := &pb.PlaceOrderResponse{Order: orderResult}
