@@ -82,7 +82,16 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (Exception)
+                {
+                    // badCartStore is a chaos-injection store; fall back to the healthy store
+                    // so that cart emptying still succeeds for the user even during fault injection.
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
