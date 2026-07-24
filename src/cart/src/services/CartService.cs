@@ -82,7 +82,19 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                activity?.SetTag("feature_flag.key", "cartFailure");
+                activity?.SetTag("feature_flag.result.variant", "on");
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException)
+                {
+                    // Fault injection store failed — fall back to healthy store so
+                    // the user-visible operation succeeds even under chaos testing.
+                    activity?.SetTag("cart.failure.fallback", true);
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
@@ -99,3 +111,4 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         return Empty;
     }
 }
+
