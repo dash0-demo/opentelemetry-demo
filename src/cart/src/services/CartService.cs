@@ -82,7 +82,18 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (Exception ex)
+                {
+                    // Bad store unavailable — fall back to the healthy store so the
+                    // user operation succeeds.  Record the failure for observability.
+                    activity?.SetTag("demo.cart.failure_injected", true);
+                    activity?.SetTag("demo.cart.fallback_reason", ex.Message);
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
