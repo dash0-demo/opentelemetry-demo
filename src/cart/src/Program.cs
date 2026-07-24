@@ -57,8 +57,10 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
 builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
+        // Intentional fault-injection store — used when cartFailure feature flag is enabled
         new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234"),
-        x.GetRequiredService<IFeatureClient>()
+        x.GetRequiredService<IFeatureClient>(),
+        x.GetRequiredService<ILogger<cart.services.CartService>>()
 ));
 
 
