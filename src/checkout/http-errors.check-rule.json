@@ -1,0 +1,15 @@
+{
+  "name": "HTTP Errors on Checkout Service",
+  "expression": "sum by (service_name, service_namespace) (increase({otel_metric_name = \"dash0.spans\", service_name = \"checkoutservice\", http_response_status_code =~ \"[45][0-9][0-9]\"}[1m])) > $__threshold",
+  "summary": "HTTP Errors on Checkout Service",
+  "description": "HTTP 4xx/5xx error count on checkoutservice is higher than the threshold per minute. Counts only genuine HTTP error responses (4xx client errors and 5xx server errors), excluding gRPC-only spans which carry http_response_status_code=0.",
+  "modes": ["error"],
+  "labels": {
+    "service": "checkoutservice"
+  },
+  "annotations": {},
+  "thresholds": {
+    "degraded": 75,
+    "failed": 200
+  }
+}
