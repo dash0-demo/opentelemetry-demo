@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using StackExchange.Redis;
@@ -17,6 +18,8 @@ public class ValkeyCartStore : ICartStore
     private readonly ILogger _logger;
     private const string CartFieldName = "cart";
     private const int RedisRetryNumber = 30;
+    private const int ReconnectRetryAttempts = 5;
+    private static readonly TimeSpan ReconnectRetryDelay = TimeSpan.FromMilliseconds(200);
 
     private volatile ConnectionMultiplexer _redis;
     private volatile bool _isRedisConnectionOpened;
@@ -76,6 +79,23 @@ public class ValkeyCartStore : ICartStore
         if (_isRedisConnectionOpened)
         {
             return;
+        }
+
+        // If there is already a connection object being managed by StackExchange.Redis,
+        // wait briefly for its built-in reconnect logic to restore the connection
+        // before attempting to create an entirely new ConnectionMultiplexer.
+        if (_redis != null && !_isRedisConnectionOpened)
+        {
+            for (int attempt = 0; attempt < ReconnectRetryAttempts; attempt++)
+            {
+                if (_redis.IsConnected)
+                {
+                    _isRedisConnectionOpened = true;
+                    return;
+                }
+                Log.RedisWaitingForReconnect(_logger, attempt + 1, ReconnectRetryAttempts);
+                Thread.Sleep(ReconnectRetryDelay);
+            }
         }
 
         // Connection is closed or failed - open a new one but only at the first thread
