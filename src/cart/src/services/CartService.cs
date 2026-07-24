@@ -82,7 +82,19 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (Exception ex)
+                {
+                    // cartFailure flag triggers intentional fault injection via a bad store.
+                    // Record the simulated failure as a span event and fall back to the
+                    // primary store so real user carts are still emptied successfully.
+                    activity?.AddEvent(new ActivityEvent("cartFailure flag triggered - falling back to primary store",
+                        tags: new ActivityTagsCollection { ["exception.message"] = ex.Message }));
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
