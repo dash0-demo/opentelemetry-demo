@@ -14,13 +14,11 @@ public class CartService : Oteldemo.CartService.CartServiceBase
 {
     private static readonly Empty Empty = new();
     private readonly Random random = new Random();
-    private readonly ICartStore _badCartStore;
     private readonly ICartStore _cartStore;
     private readonly IFeatureClient _featureFlagHelper;
 
-    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService)
+    public CartService(ICartStore cartStore, IFeatureClient featureFlagService)
     {
-        _badCartStore = badCartStore;
         _cartStore = cartStore;
         _featureFlagHelper = featureFlagService;
     }
@@ -82,12 +80,14 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                var simulatedError = new RpcException(
+                    new Status(StatusCode.FailedPrecondition, "Cart failure feature flag is enabled. EmptyCart is intentionally failing."));
+                Activity.Current?.AddException(simulatedError);
+                Activity.Current?.SetStatus(ActivityStatusCode.Error, simulatedError.Message);
+                throw simulatedError;
             }
-            else
-            {
-                await _cartStore.EmptyCartAsync(request.UserId);
-            }
+
+            await _cartStore.EmptyCartAsync(request.UserId);
         }
         catch (RpcException ex)
         {
