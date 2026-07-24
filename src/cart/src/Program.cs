@@ -54,6 +54,12 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
         .AddHook<TraceEnricherHook>();
 });
 
+// DEMO FAULT INJECTION: The second ValkeyCartStore below uses an unreachable address (badhost:1234).
+// This is the intentional bad store used by the 'cartFailure' feature flag to simulate
+// cart storage failures via EmptyCart. Enabling the 'cartFailure' feature flag routes
+// EmptyCart calls through this store, causing FailedPrecondition (gRPC status 9) errors.
+// The 'cartFailure' flag MUST remain defaultVariant=off in demo.flagd.json to prevent
+// unintended outages. Only enable it for controlled chaos engineering experiments.
 builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
