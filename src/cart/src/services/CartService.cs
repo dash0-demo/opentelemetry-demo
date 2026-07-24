@@ -82,7 +82,19 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (Exception ex)
+                {
+                    // The cartFailure feature flag intentionally routes to a bad store for chaos
+                    // testing. Log the injected fault and fall back to the real store so that
+                    // checkout orders are not hard-blocked by a chaos experiment.
+                    activity?.AddEvent(new ActivityEvent("cart.chaos.fallback",
+                        tags: new ActivityTagsCollection { { "cart.chaos.error", ex.Message } }));
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
