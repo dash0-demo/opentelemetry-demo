@@ -49,7 +49,7 @@ public class ValkeyCartStore : ICartStore
         // Serialize empty cart into byte array.
         var cart = new Oteldemo.Cart();
         _emptyCartBytes = cart.ToByteArray();
-        _connectionString = $"{valkeyAddress},ssl=false,allowAdmin=true,abortConnect=false";
+        _connectionString = $"{valkeyAddress},ssl=false,allowAdmin=true,abortConnect=true";
 
         _redisConnectionOptions = ConfigurationOptions.Parse(_connectionString);
 
@@ -88,7 +88,15 @@ public class ValkeyCartStore : ICartStore
 
             Log.RedisConnecting(_logger, _connectionString);
 
-            _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
+            try
+            {
+                _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
+            }
+            catch (Exception ex)
+            {
+                Log.RedisConnectionFailed(_logger);
+                throw new ApplicationException("Wasn't able to connect to redis", ex);
+            }
 
             if (_redis == null || !_redis.IsConnected)
             {
@@ -212,7 +220,7 @@ public class ValkeyCartStore : ICartStore
                 return Oteldemo.Cart.Parser.ParseFrom(value);
             }
 
-            // We decided to return empty cart in cases when user wasn't in the cache before
+            // We decided to return empty cart in cases when user weren't in the cache before
             return new Oteldemo.Cart();
         }
         catch (Exception ex)
