@@ -57,7 +57,10 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
 builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
-        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234"),
+        // fastFail=true: this store points to a non-existent host used only for failure injection
+        // via the cartFailure feature flag. It must fail quickly to avoid blocking PlaceOrder for
+        // the full 30-retry backoff window, which would cause cascading latency on the checkout path.
+        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234", fastFail: true),
         x.GetRequiredService<IFeatureClient>()
 ));
 
