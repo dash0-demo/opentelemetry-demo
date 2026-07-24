@@ -70,8 +70,8 @@
       "defaultVariant": "off"
     },
     "cartFailure": {
-      "description": "Fail cart service",
-      "state": "ENABLED",
+      "description": "Fail cart service — intentional chaos flag; keep DISABLED in production to prevent EmptyCart Redis connection errors from breaching the CartService SLO",
+      "state": "DISABLED",
       "variants": {
         "on": true,
         "off": false

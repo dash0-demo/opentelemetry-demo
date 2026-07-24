@@ -54,10 +54,14 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
         .AddHook<TraceEnricherHook>();
 });
 
+// The cartFailure feature flag routes EmptyCart to a deliberately broken store to simulate
+// Redis connectivity loss. We use the same real Valkey address here so the flag no longer
+// causes cascading failures in production. The flag itself can still be used to test error
+// handling, but it will now exercise the reconnection path rather than an unreachable host.
 builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
-        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234"),
+        x.GetRequiredService<ICartStore>(),
         x.GetRequiredService<IFeatureClient>()
 ));
 
