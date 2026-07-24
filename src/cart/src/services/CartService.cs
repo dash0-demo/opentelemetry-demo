@@ -18,6 +18,13 @@ public class CartService : Oteldemo.CartService.CartServiceBase
     private readonly ICartStore _cartStore;
     private readonly IFeatureClient _featureFlagHelper;
 
+    // Fault injection is only active when CART_FAILURE_ENABLED=true is explicitly set,
+    // preventing accidental production failures if the feature flag is toggled in a
+    // shared flagd instance (see: https://github.com/open-telemetry/opentelemetry-demo).
+    private static readonly bool FaultInjectionAllowed =
+        string.Equals(Environment.GetEnvironmentVariable("CART_FAILURE_ENABLED"), "true",
+            StringComparison.OrdinalIgnoreCase);
+
     public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService)
     {
         _badCartStore = badCartStore;
@@ -80,7 +87,9 @@ public class CartService : Oteldemo.CartService.CartServiceBase
 
         try
         {
-            if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
+            // Fault injection: only route to bad store when CART_FAILURE_ENABLED=true is set
+            // AND the cartFailure feature flag is enabled, preventing accidental production outages.
+            if (FaultInjectionAllowed && await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
                 await _badCartStore.EmptyCartAsync(request.UserId);
             }
