@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System;
 using Grpc.Core;
 using cart.cartstore;
+using Microsoft.Extensions.Logging;
 using OpenFeature;
 using Oteldemo;
 
@@ -17,12 +18,14 @@ public class CartService : Oteldemo.CartService.CartServiceBase
     private readonly ICartStore _badCartStore;
     private readonly ICartStore _cartStore;
     private readonly IFeatureClient _featureFlagHelper;
+    private readonly ILogger<CartService> _logger;
 
-    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService)
+    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService, ILogger<CartService> logger)
     {
         _badCartStore = badCartStore;
         _cartStore = cartStore;
         _featureFlagHelper = featureFlagService;
+        _logger = logger;
     }
 
     public override async Task<Empty> AddItem(AddItemRequest request, ServerCallContext context)
@@ -82,7 +85,19 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (Exception ex)
+                {
+                    // cartFailure flag is active: bad store failed as expected for chaos injection.
+                    // Log the failure for observability, then fall back to the healthy store so
+                    // the checkout flow is not broken for end users.
+                    _logger.LogWarning(ex, "cartFailure flag is active: bad store failed, falling back to healthy store for user {UserId}", request.UserId);
+                    activity?.AddEvent(new("cartFailure: bad store error, falling back to healthy store"));
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
