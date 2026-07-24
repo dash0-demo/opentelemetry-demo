@@ -80,7 +80,14 @@ public class CartService : Oteldemo.CartService.CartServiceBase
 
         try
         {
-            if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
+            // cartFailure is a chaos-engineering feature flag. When active, it routes EmptyCart
+            // to a deliberately broken store (badhost:1234) to simulate storage unavailability.
+            // The flag is currently DISABLED in demo.flagd.json; re-enable only for intentional
+            // fault-injection exercises and remember to disable it afterwards.
+            var faultInjectionActive = await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false);
+            activity?.SetTag("demo.cart.fault_injection", faultInjectionActive);
+
+            if (faultInjectionActive)
             {
                 await _badCartStore.EmptyCartAsync(request.UserId);
             }
