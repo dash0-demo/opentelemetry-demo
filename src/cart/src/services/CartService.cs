@@ -7,7 +7,6 @@ using Grpc.Core;
 using cart.cartstore;
 using OpenFeature;
 using Oteldemo;
-using Microsoft.Extensions.Logging;
 
 namespace cart.services;
 
@@ -18,14 +17,12 @@ public class CartService : Oteldemo.CartService.CartServiceBase
     private readonly ICartStore _badCartStore;
     private readonly ICartStore _cartStore;
     private readonly IFeatureClient _featureFlagHelper;
-    private readonly ILogger<CartService> _logger;
 
-    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService, ILogger<CartService> logger)
+    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService)
     {
         _badCartStore = badCartStore;
         _cartStore = cartStore;
         _featureFlagHelper = featureFlagService;
-        _logger = logger;
     }
 
     public override async Task<Empty> AddItem(AddItemRequest request, ServerCallContext context)
@@ -91,8 +88,11 @@ public class CartService : Oteldemo.CartService.CartServiceBase
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "cartFailure feature flag is active but bad cart store failed; falling back to primary store.");
-                    activity?.AddEvent(new ActivityEvent("cartFailure fallback to primary store"));
+                    // Fault injection store is unreachable -- fall back to the healthy store so the
+                    // user operation succeeds. The exception is recorded as a span event for
+                    // observability without surfacing a gRPC error to the caller.
+                    activity?.AddEvent(new ActivityEvent("cart.fault_injection.fallback",
+                        tags: new ActivityTagsCollection { ["exception.message"] = ex.Message }));
                     await _cartStore.EmptyCartAsync(request.UserId);
                 }
             }
