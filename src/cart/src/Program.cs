@@ -57,7 +57,9 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
 builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
-        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234"),
+        // Use retryCount=1 so the cartFailure feature flag produces a fast, deterministic error
+        // instead of blocking the request for the full exponential-backoff retry budget (30 attempts).
+        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234", retryCount: 1),
         x.GetRequiredService<IFeatureClient>()
 ));
 
