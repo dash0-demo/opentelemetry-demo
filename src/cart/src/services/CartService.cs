@@ -17,12 +17,14 @@ public class CartService : Oteldemo.CartService.CartServiceBase
     private readonly ICartStore _badCartStore;
     private readonly ICartStore _cartStore;
     private readonly IFeatureClient _featureFlagHelper;
+    private readonly ILogger<CartService> _logger;
 
-    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService)
+    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService, ILogger<CartService> logger)
     {
         _badCartStore = badCartStore;
         _cartStore = cartStore;
         _featureFlagHelper = featureFlagService;
+        _logger = logger;
     }
 
     public override async Task<Empty> AddItem(AddItemRequest request, ServerCallContext context)
@@ -82,7 +84,19 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException ex)
+                {
+                    // cartFailure flag is set: fault injection triggered a Redis connection error.
+                    // Log the simulated failure and fall back to the healthy store so the user
+                    // operation still succeeds while the alert remains visible in observability tooling.
+                    activity?.AddEvent(new("cartFailure flag active: falling back to healthy store after simulated Redis failure"));
+                    _logger.LogWarning(ex, "cartFailure feature flag is enabled; simulated Redis failure on EmptyCart, falling back to healthy store for user {UserId}", request.UserId);
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
