@@ -82,7 +82,19 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException ex)
+                {
+                    // cartFailure flag is enabled: fault injection failed as intended.
+                    // Record the fault for observability but degrade gracefully by falling
+                    // back to the real cart store so the caller is not impacted.
+                    Activity.Current?.AddException(ex);
+                    Activity.Current?.SetTag("demo.cart.fault_injected", true);
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
