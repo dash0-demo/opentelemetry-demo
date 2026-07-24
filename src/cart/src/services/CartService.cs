@@ -80,7 +80,10 @@ public class CartService : Oteldemo.CartService.CartServiceBase
 
         try
         {
-            if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
+            var cartFailureEnabled = await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false);
+            // Tag the span so fault-injection is visible in traces when the flag is active.
+            activity?.SetTag("demo.fault_injection.cart_failure", cartFailureEnabled);
+            if (cartFailureEnabled)
             {
                 await _badCartStore.EmptyCartAsync(request.UserId);
             }
