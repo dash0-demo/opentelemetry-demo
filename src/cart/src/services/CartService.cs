@@ -82,7 +82,19 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                // Attempt the bad store for fault injection observability, but fall back to the real
+                // store so checkout can complete. The exception is recorded on the span for alerting.
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException ex)
+                {
+                    Activity.Current?.AddException(ex);
+                    Activity.Current?.SetTag("cart.failure.injected", true);
+                    // Fallback to the real store so the user's checkout is not blocked.
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
