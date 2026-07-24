@@ -57,7 +57,6 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
 builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
-        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234"),
         x.GetRequiredService<IFeatureClient>()
 ));
 
@@ -107,5 +106,3 @@ app.MapGet("/", async context =>
 });
 
 app.Run();
-
-
