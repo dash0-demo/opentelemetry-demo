@@ -80,8 +80,15 @@ public class CartService : Oteldemo.CartService.CartServiceBase
 
         try
         {
-            if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
+            var cartFailureEnabled = await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false);
+            // Annotate the span so the active feature flag state is visible in traces.
+            activity?.SetTag("feature_flag.key", "cartFailure");
+            activity?.SetTag("feature_flag.variant", cartFailureEnabled ? "on" : "off");
+
+            if (cartFailureEnabled)
             {
+                // Intentional fault-injection: routes to a non-existent Redis endpoint
+                // to simulate cart storage failures. Enable only via the flagd-ui for demos.
                 await _badCartStore.EmptyCartAsync(request.UserId);
             }
             else
