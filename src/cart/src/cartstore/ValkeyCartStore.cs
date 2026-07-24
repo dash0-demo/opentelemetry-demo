@@ -16,7 +16,7 @@ public class ValkeyCartStore : ICartStore
 {
     private readonly ILogger _logger;
     private const string CartFieldName = "cart";
-    private const int RedisRetryNumber = 30;
+    private const int RedisRetryNumber = 3;
 
     private volatile ConnectionMultiplexer _redis;
     private volatile bool _isRedisConnectionOpened;
@@ -55,6 +55,7 @@ public class ValkeyCartStore : ICartStore
 
         // Try to reconnect multiple times if the first retry fails.
         _redisConnectionOptions.ConnectRetry = RedisRetryNumber;
+        _redisConnectionOptions.ConnectTimeout = 1000;
         _redisConnectionOptions.ReconnectRetryPolicy = new ExponentialRetry(1000);
 
         _redisConnectionOptions.KeepAlive = 180;
