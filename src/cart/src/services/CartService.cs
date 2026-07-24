@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using System;
 using Grpc.Core;
 using cart.cartstore;
-using OpenFeature;
 using Oteldemo;
 
 namespace cart.services;
@@ -13,16 +12,11 @@ namespace cart.services;
 public class CartService : Oteldemo.CartService.CartServiceBase
 {
     private static readonly Empty Empty = new();
-    private readonly Random random = new Random();
-    private readonly ICartStore _badCartStore;
     private readonly ICartStore _cartStore;
-    private readonly IFeatureClient _featureFlagHelper;
 
-    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService)
+    public CartService(ICartStore cartStore)
     {
-        _badCartStore = badCartStore;
         _cartStore = cartStore;
-        _featureFlagHelper = featureFlagService;
     }
 
     public override async Task<Empty> AddItem(AddItemRequest request, ServerCallContext context)
@@ -80,14 +74,7 @@ public class CartService : Oteldemo.CartService.CartServiceBase
 
         try
         {
-            if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
-            {
-                await _badCartStore.EmptyCartAsync(request.UserId);
-            }
-            else
-            {
-                await _cartStore.EmptyCartAsync(request.UserId);
-            }
+            await _cartStore.EmptyCartAsync(request.UserId);
         }
         catch (RpcException ex)
         {
