@@ -54,10 +54,16 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
         .AddHook<TraceEnricherHook>();
 });
 
+// FAULT_STORE_ADDR can be set to a deliberately unreachable host to simulate
+// cart storage failures when the cartFailure feature flag is enabled.
+// Defaults to the real Valkey address so accidental flag enablement does not
+// cause production errors unless the bad address is explicitly configured.
+string faultStoreAddress = builder.Configuration["FAULT_STORE_ADDR"] ?? valkeyAddress;
+
 builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
-        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234"),
+        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), faultStoreAddress),
         x.GetRequiredService<IFeatureClient>()
 ));
 
