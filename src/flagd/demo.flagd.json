@@ -70,7 +70,7 @@
       "defaultVariant": "off"
     },
     "cartFailure": {
-      "description": "Fail cart service EmptyCart by routing to a misconfigured store (badhost:1234). Keep DISABLED to prevent accidental enablement.",
+      "description": "Fail cart service",
       "state": "DISABLED",
       "variants": {
         "on": true,
