@@ -90,6 +90,8 @@ public class CartService : Oteldemo.CartService.CartServiceBase
                 }
                 catch (RpcException)
                 {
+                    // Bad store failed (simulated fault injection); fall back to the healthy store.
+                    activity?.AddEvent(new("cartFailure store unavailable, falling back to healthy store"));
                     await _cartStore.EmptyCartAsync(request.UserId);
                 }
             }
