@@ -35,6 +35,13 @@ if (string.IsNullOrEmpty(valkeyAddress))
     Environment.Exit(1);
 }
 
+// BAD_VALKEY_ADDR is the intentionally-unreachable address used when the
+// cartFailure feature flag is enabled to simulate a storage outage. It
+// defaults to "badhost:1234" (guaranteed non-routable) so that flag-driven
+// fault injection works out of the box without extra configuration. Override
+// it in environments where that hostname resolves to something real.
+string badValkeyAddress = builder.Configuration["BAD_VALKEY_ADDR"] ?? "badhost:1234";
+
 builder.Logging
     .AddOpenTelemetry(options => options.AddOtlpExporter())
     .AddConsole();
@@ -57,7 +64,7 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
 builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
-        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234"),
+        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), badValkeyAddress),
         x.GetRequiredService<IFeatureClient>()
 ));
 
