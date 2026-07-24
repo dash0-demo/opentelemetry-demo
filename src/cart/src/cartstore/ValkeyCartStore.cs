@@ -43,7 +43,7 @@ public class ValkeyCartStore : ICartStore
         });
     private readonly ConfigurationOptions _redisConnectionOptions;
 
-    public ValkeyCartStore(ILogger<ValkeyCartStore> logger, string valkeyAddress)
+    public ValkeyCartStore(ILogger<ValkeyCartStore> logger, string valkeyAddress, bool failFast = false)
     {
         _logger = logger;
         // Serialize empty cart into byte array.
@@ -53,9 +53,22 @@ public class ValkeyCartStore : ICartStore
 
         _redisConnectionOptions = ConfigurationOptions.Parse(_connectionString);
 
-        // Try to reconnect multiple times if the first retry fails.
-        _redisConnectionOptions.ConnectRetry = RedisRetryNumber;
-        _redisConnectionOptions.ReconnectRetryPolicy = new ExponentialRetry(1000);
+        if (failFast)
+        {
+            // Fault-injection store: fail immediately without retries so the
+            // cartFailure feature flag produces a fast, deterministic error
+            // instead of hanging for tens of seconds while retrying a
+            // deliberately unreachable host.
+            _redisConnectionOptions.ConnectRetry = 0;
+            _redisConnectionOptions.ConnectTimeout = 1000; // 1 s
+            _redisConnectionOptions.ReconnectRetryPolicy = new ExponentialRetry(0);
+        }
+        else
+        {
+            // Try to reconnect multiple times if the first retry fails.
+            _redisConnectionOptions.ConnectRetry = RedisRetryNumber;
+            _redisConnectionOptions.ReconnectRetryPolicy = new ExponentialRetry(1000);
+        }
 
         _redisConnectionOptions.KeepAlive = 180;
     }
