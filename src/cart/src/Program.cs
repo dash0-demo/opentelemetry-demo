@@ -35,6 +35,12 @@ if (string.IsNullOrEmpty(valkeyAddress))
     Environment.Exit(1);
 }
 
+// CART_FAILURE_VALKEY_ADDR allows injecting a deliberately bad Valkey address for
+// chaos-engineering / demo purposes (cartFailure feature flag path).
+// When unset it falls back to the real Valkey address so the cartFailure flag becomes
+// a no-op and EmptyCart never fails with a hard-coded unreachable host.
+string cartFailureValkeyAddress = builder.Configuration["CART_FAILURE_VALKEY_ADDR"] ?? valkeyAddress;
+
 builder.Logging
     .AddOpenTelemetry(options => options.AddOtlpExporter())
     .AddConsole();
@@ -57,7 +63,7 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
 builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
-        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234"),
+        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), cartFailureValkeyAddress),
         x.GetRequiredService<IFeatureClient>()
 ));
 
@@ -107,5 +113,3 @@ app.MapGet("/", async context =>
 });
 
 app.Run();
-
-
