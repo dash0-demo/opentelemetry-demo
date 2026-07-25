@@ -2,27 +2,13 @@
   "$schema": "https://flagd.dev/schema/v0/flags.json",
   "flags": {
     "productCatalogFailure": {
-      "description": "Fail product catalog service on a specific product",
+      "description": "Fail product catalog service on a specific set of product IDs (controlled by code in checkProductFailure). Enable this flag to inject failures for demo/testing; leave off in production.",
       "state": "ENABLED",
       "variants": {
         "on": true,
         "off": false
       },
-      "defaultVariant": "off",
-      "targeting": {
-        "if": [
-          {
-            "==": [
-              {
-                "var": "product_id"
-              },
-              "OLJCESPC7Z"
-            ]
-          },
-          "off",
-          "off"
-        ]
-      }
+      "defaultVariant": "off"
     },
     "recommendationCacheFailure": {
       "description": "Fail recommendation service cache",
