@@ -43,7 +43,7 @@ public class ValkeyCartStore : ICartStore
         });
     private readonly ConfigurationOptions _redisConnectionOptions;
 
-    public ValkeyCartStore(ILogger<ValkeyCartStore> logger, string valkeyAddress)
+    public ValkeyCartStore(ILogger<ValkeyCartStore> logger, string valkeyAddress, int connectTimeoutMs = 5000)
     {
         _logger = logger;
         // Serialize empty cart into byte array.
@@ -56,6 +56,7 @@ public class ValkeyCartStore : ICartStore
         // Try to reconnect multiple times if the first retry fails.
         _redisConnectionOptions.ConnectRetry = RedisRetryNumber;
         _redisConnectionOptions.ReconnectRetryPolicy = new ExponentialRetry(1000);
+        _redisConnectionOptions.ConnectTimeout = connectTimeoutMs;
 
         _redisConnectionOptions.KeepAlive = 180;
     }
@@ -93,6 +94,10 @@ public class ValkeyCartStore : ICartStore
             if (_redis == null || !_redis.IsConnected)
             {
                 Log.RedisConnectionFailed(_logger);
+
+                // Reset the multiplexer so the next call can attempt a fresh connection.
+                _redis?.Dispose();
+                _redis = null;
 
                 // We weren't able to connect to Redis despite some retries with exponential backoff.
                 throw new ApplicationException("Wasn't able to connect to redis");

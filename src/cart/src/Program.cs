@@ -57,7 +57,11 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
 builder.Services.AddSingleton(x =>
     new CartService(
         x.GetRequiredService<ICartStore>(),
-        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234"),
+        // badCartStore is intentionally unreachable to simulate cart failures when the
+        // cartFailure feature flag is enabled. The short connect timeout (500 ms) ensures
+        // the failure is injected quickly instead of waiting through 30 exponential-backoff
+        // retries, which previously caused each EmptyCart RPC to block for several seconds.
+        new ValkeyCartStore(x.GetRequiredService<ILogger<ValkeyCartStore>>(), "badhost:1234", connectTimeoutMs: 500),
         x.GetRequiredService<IFeatureClient>()
 ));
 
