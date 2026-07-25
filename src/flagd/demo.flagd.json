@@ -76,7 +76,16 @@
         "on": true,
         "off": false
       },
-      "defaultVariant": "off"
+      "defaultVariant": "off",
+      "targeting": {
+        "if": [
+          {
+            "var": "force_failure"
+          },
+          "on",
+          "off"
+        ]
+      }
     },
     "paymentFailure": {
       "description": "Fail payment service charge requests n%",
