@@ -1,5 +1,6 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using System;
@@ -82,7 +83,22 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException faultEx)
+                {
+                    // The fault-injection store failed as expected. Record the simulated failure
+                    // as a span event for observability, then fall back to the real cart store
+                    // so the checkout flow can still complete.
+                    activity?.AddEvent(new("cart.failure.simulated",
+                        tags: new ActivityTagsCollection(new[]
+                        {
+                            new KeyValuePair<string, object?>("exception.message", faultEx.Status.Detail)
+                        })));
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
