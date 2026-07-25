@@ -56,9 +56,8 @@ builder.Services.AddOpenFeature(openFeatureBuilder =>
 
 builder.Services.AddSingleton(x =>
     new CartService(
-        x.GetRequiredService<ICartStore>(),
-        x.GetRequiredService<IFeatureClient>()
-));
+        x.GetRequiredService<ICartStore>()
+    ));
 
 
 Action<ResourceBuilder> appResourceBuilder =
@@ -106,5 +105,4 @@ app.MapGet("/", async context =>
 });
 
 app.Run();
-
 
