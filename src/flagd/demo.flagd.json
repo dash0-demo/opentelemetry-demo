@@ -70,13 +70,31 @@
       "defaultVariant": "off"
     },
     "cartFailure": {
-      "description": "Fail cart service",
+      "description": "Fail cart service EmptyCart with a Redis connection error. When enabled via the 'on' variant the flag fires at a 10% probability per request; set defaultVariant to 'on' to activate.",
       "state": "ENABLED",
       "variants": {
         "on": true,
         "off": false
       },
-      "defaultVariant": "off"
+      "defaultVariant": "off",
+      "targeting": {
+        "if": [
+          {
+            "==": [
+              {
+                "fractional": [
+                  { "var": "userId" },
+                  ["on", 10],
+                  ["off", 90]
+                ]
+              },
+              "on"
+            ]
+          },
+          "on",
+          "off"
+        ]
+      }
     },
     "paymentFailure": {
       "description": "Fail payment service charge requests n%",
