@@ -86,15 +86,35 @@ public class ValkeyCartStore : ICartStore
                 return;
             }
 
+            // If the multiplexer already exists it was previously initialised and lost the
+            // connection transiently. StackExchange.Redis auto-reconnects when abortConnect=false;
+            // re-using the existing instance avoids discarding its internal reconnect state and
+            // avoids a hard failure if Redis is momentarily unreachable during the reconnect window.
+            if (_redis != null)
+            {
+                Log.RedisConnectionRestored(_logger);
+                _isRedisConnectionOpened = true;
+                return;
+            }
+
             Log.RedisConnecting(_logger, _connectionString);
 
             _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
 
-            if (_redis == null || !_redis.IsConnected)
+            if (_redis == null)
             {
                 Log.RedisConnectionFailed(_logger);
 
                 // We weren't able to connect to Redis despite some retries with exponential backoff.
+                throw new ApplicationException("Wasn't able to connect to redis");
+            }
+
+            if (!_redis.IsConnected)
+            {
+                Log.RedisConnectionFailed(_logger);
+                // Connection is not yet established — the multiplexer will retry in the background
+                // (abortConnect=false + ExponentialRetry). Throw so the caller can surface a clear
+                // error rather than silently operating on a disconnected instance.
                 throw new ApplicationException("Wasn't able to connect to redis");
             }
 
