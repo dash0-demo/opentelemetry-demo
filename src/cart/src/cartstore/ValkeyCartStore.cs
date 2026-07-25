@@ -186,6 +186,13 @@ public class ValkeyCartStore : ICartStore
             await db.HashSetAsync(userId, new[] { new HashEntry(CartFieldName, _emptyCartBytes) });
             await db.KeyExpireAsync(userId, TimeSpan.FromMinutes(60));
         }
+        catch (RedisConnectionException ex)
+        {
+            // Connection was lost mid-operation; reset the flag so the next call re-establishes it.
+            Log.RedisConnectionLost(_logger);
+            _isRedisConnectionOpened = false;
+            throw new RpcException(new Status(StatusCode.Unavailable, $"Cart storage temporarily unavailable. {ex}"));
+        }
         catch (Exception ex)
         {
             throw new RpcException(new Status(StatusCode.FailedPrecondition, $"Can't access cart storage. {ex}"));
