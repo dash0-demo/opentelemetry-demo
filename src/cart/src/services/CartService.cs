@@ -82,7 +82,19 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (Exception ex)
+                {
+                    // Record the simulated failure as a span event so it is visible in telemetry,
+                    // then fall back to the healthy store so checkout is not permanently broken.
+                    activity?.AddEvent(new ActivityEvent("cart.failure.simulated",
+                        tags: new ActivityTagsCollection { { "exception.message", ex.Message } }));
+                    activity?.SetTag("cart.failure.simulated", true);
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
