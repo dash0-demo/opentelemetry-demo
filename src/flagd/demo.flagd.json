@@ -70,7 +70,7 @@
       "defaultVariant": "off"
     },
     "cartFailure": {
-      "description": "Fail cart service",
+      "description": "Fail cart service - DO NOT enable in production. When enabled, EmptyCart routes to a bad store that cannot connect to Redis, causing checkout failures.",
       "state": "ENABLED",
       "variants": {
         "on": true,
