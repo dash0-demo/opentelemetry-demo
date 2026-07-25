@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System;
 using Grpc.Core;
 using cart.cartstore;
+using Microsoft.Extensions.Logging;
 using OpenFeature;
 using Oteldemo;
 
@@ -17,12 +18,14 @@ public class CartService : Oteldemo.CartService.CartServiceBase
     private readonly ICartStore _badCartStore;
     private readonly ICartStore _cartStore;
     private readonly IFeatureClient _featureFlagHelper;
+    private readonly ILogger<CartService> _logger;
 
-    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService)
+    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService, ILogger<CartService> logger)
     {
         _badCartStore = badCartStore;
         _cartStore = cartStore;
         _featureFlagHelper = featureFlagService;
+        _logger = logger;
     }
 
     public override async Task<Empty> AddItem(AddItemRequest request, ServerCallContext context)
@@ -82,7 +85,20 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                // Fault injection: attempt to use an unreachable store to simulate a Redis failure.
+                // On failure, log the injected fault and fall back to the healthy store so the
+                // checkout flow can still complete. This keeps the demo observable without
+                // breaking the end-to-end purchase path.
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "cartFailure feature flag is active: simulated cart storage failure on EmptyCart for user {UserId}. Falling back to healthy store.", request.UserId);
+                    activity?.SetTag("demo.cartFailure.injected", true);
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
