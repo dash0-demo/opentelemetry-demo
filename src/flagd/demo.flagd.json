@@ -70,13 +70,20 @@
       "defaultVariant": "off"
     },
     "cartFailure": {
-      "description": "Fail cart service",
+      "description": "Fail cart service EmptyCart via bad Redis connection. Uses fractional targeting to simulate a partial outage (10% of requests) rather than a full outage, preventing the CartService Check alert from firing on a 100% failure rate.",
       "state": "ENABLED",
       "variants": {
         "on": true,
         "off": false
       },
-      "defaultVariant": "off"
+      "defaultVariant": "off",
+      "targeting": {
+        "fractional": [
+          {"var": "targetingKey"},
+          ["on", 10],
+          ["off", 90]
+        ]
+      }
     },
     "paymentFailure": {
       "description": "Fail payment service charge requests n%",
