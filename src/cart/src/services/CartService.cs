@@ -82,7 +82,18 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (Exception chaosEx)
+                {
+                    // Chaos injection failed as expected; record the fault for observability
+                    // and fall back to the healthy store so EmptyCart remains functional.
+                    activity?.AddEvent(new ActivityEvent("cartFailure chaos triggered",
+                        tags: new ActivityTagsCollection { ["exception.message"] = chaosEx.Message }));
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
