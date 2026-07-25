@@ -258,7 +258,8 @@ func main() {
 	}
 
 	srv := grpc.NewServer(
-		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+		grpc.ChainUnaryInterceptor(otelgrpc.UnaryServerInterceptor()),
+		grpc.ChainStreamInterceptor(otelgrpc.StreamServerInterceptor()),
 	)
 	pb.RegisterCheckoutServiceServer(srv, svc)
 
