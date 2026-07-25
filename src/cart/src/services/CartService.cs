@@ -2,10 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics;
 using System.Threading.Tasks;
-using System;
 using Grpc.Core;
 using cart.cartstore;
-using OpenFeature;
 using Oteldemo;
 
 namespace cart.services;
@@ -13,14 +11,11 @@ namespace cart.services;
 public class CartService : Oteldemo.CartService.CartServiceBase
 {
     private static readonly Empty Empty = new();
-    private readonly Random random = new Random();
     private readonly ICartStore _cartStore;
-    private readonly IFeatureClient _featureFlagHelper;
 
-    public CartService(ICartStore cartStore, IFeatureClient featureFlagService)
+    public CartService(ICartStore cartStore)
     {
         _cartStore = cartStore;
-        _featureFlagHelper = featureFlagService;
     }
 
     public override async Task<Empty> AddItem(AddItemRequest request, ServerCallContext context)
@@ -33,7 +28,6 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         try
         {
             await _cartStore.AddItemAsync(request.UserId, request.Item.ProductId, request.Item.Quantity);
-
             return Empty;
         }
         catch (RpcException ex)
@@ -59,7 +53,6 @@ public class CartService : Oteldemo.CartService.CartServiceBase
                 totalCart += item.Quantity;
             }
             activity?.SetTag("demo.cart.items.count", totalCart);
-
             return cart;
         }
         catch (RpcException ex)
