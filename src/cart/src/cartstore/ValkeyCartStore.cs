@@ -116,7 +116,16 @@ public class ValkeyCartStore : ICartStore
             _redis.ConnectionFailed += (_, _) =>
             {
                 Log.RedisConnectionLost(_logger);
-                _isRedisConnectionOpened = false;
+                // Null out _redis under the lock so EnsureRedisConnected creates a fresh
+                // ConnectionMultiplexer on the next call. Without this, every reconnect
+                // attempt re-subscribes events on the stale (broken) instance, causing
+                // duplicate event handlers and a memory/connection leak that permanently
+                // prevents cartservice from recovering when Redis is temporarily unavailable.
+                lock (_locker)
+                {
+                    _isRedisConnectionOpened = false;
+                    _redis = null;
+                }
             };
 
             _isRedisConnectionOpened = true;
