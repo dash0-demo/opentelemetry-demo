@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System;
 using Grpc.Core;
 using cart.cartstore;
+using Microsoft.Extensions.Logging;
 using OpenFeature;
 using Oteldemo;
 
@@ -17,12 +18,14 @@ public class CartService : Oteldemo.CartService.CartServiceBase
     private readonly ICartStore _badCartStore;
     private readonly ICartStore _cartStore;
     private readonly IFeatureClient _featureFlagHelper;
+    private readonly ILogger<CartService> _logger;
 
-    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService)
+    public CartService(ICartStore cartStore, ICartStore badCartStore, IFeatureClient featureFlagService, ILogger<CartService> logger)
     {
         _badCartStore = badCartStore;
         _cartStore = cartStore;
         _featureFlagHelper = featureFlagService;
+        _logger = logger;
     }
 
     public override async Task<Empty> AddItem(AddItemRequest request, ServerCallContext context)
@@ -82,7 +85,18 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (Exception ex)
+                {
+                    // cartFailure flag is enabled but the bad store is unavailable.
+                    // Fall back to the real store so that EmptyCart remains functional
+                    // even when the chaos flag is accidentally left on in production.
+                    _logger.LogWarning(ex, "cartFailure flag is enabled but bad cart store failed. Falling back to primary store.");
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
