@@ -19,7 +19,7 @@ public class ValkeyCartStore : ICartStore
     private const string CartFieldName = "cart";
     private const int RedisRetryNumber = 30;
     private const int ReconnectRetryAttempts = 5;
-    private static readonly TimeSpan ReconnectRetryDelay = TimeSpan.FromMilliseconds(200);
+    private const int ReconnectRetryDelayMs = 200;
 
     private volatile ConnectionMultiplexer _redis;
     private volatile bool _isRedisConnectionOpened;
@@ -81,23 +81,6 @@ public class ValkeyCartStore : ICartStore
             return;
         }
 
-        // If there is already a connection object being managed by StackExchange.Redis,
-        // wait briefly for its built-in reconnect logic to restore the connection
-        // before attempting to create an entirely new ConnectionMultiplexer.
-        if (_redis != null && !_isRedisConnectionOpened)
-        {
-            for (int attempt = 0; attempt < ReconnectRetryAttempts; attempt++)
-            {
-                if (_redis.IsConnected)
-                {
-                    _isRedisConnectionOpened = true;
-                    return;
-                }
-                Log.RedisWaitingForReconnect(_logger, attempt + 1, ReconnectRetryAttempts);
-                Thread.Sleep(ReconnectRetryDelay);
-            }
-        }
-
         // Connection is closed or failed - open a new one but only at the first thread
         lock (_locker)
         {
@@ -108,14 +91,40 @@ public class ValkeyCartStore : ICartStore
 
             Log.RedisConnecting(_logger, _connectionString);
 
-            _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
+            // Retry the connection attempt with a short delay to handle transient failures
+            // (e.g. brief network hiccups or rolling restarts of the Valkey pod).
+            Exception lastException = null;
+            for (int attempt = 1; attempt <= ReconnectRetryAttempts; attempt++)
+            {
+                try
+                {
+                    _redis?.Dispose();
+                    _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
+
+                    if (_redis != null && _redis.IsConnected)
+                    {
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    lastException = ex;
+                    Log.RedisConnectionFailed(_logger);
+                    _logger.LogWarning(ex, "Valkey connection attempt {Attempt}/{MaxAttempts} failed.", attempt, ReconnectRetryAttempts);
+                }
+
+                if (attempt < ReconnectRetryAttempts)
+                {
+                    Thread.Sleep(ReconnectRetryDelayMs * attempt);
+                }
+            }
 
             if (_redis == null || !_redis.IsConnected)
             {
                 Log.RedisConnectionFailed(_logger);
 
                 // We weren't able to connect to Redis despite some retries with exponential backoff.
-                throw new ApplicationException("Wasn't able to connect to redis");
+                throw new ApplicationException("Wasn't able to connect to redis", lastException);
             }
 
             Log.RedisConnected(_logger);
