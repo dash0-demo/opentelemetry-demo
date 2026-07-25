@@ -82,7 +82,22 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException ex)
+                {
+                    // Bad cart store failed (fault injection). Fall back to the real store
+                    // so the checkout flow can complete, and record the degraded path.
+                    activity?.AddEvent(new ActivityEvent("cart.storage.fallback",
+                        tags: new ActivityTagsCollection
+                        {
+                            { "cart.storage.fallback.reason", ex.Status.Detail }
+                        }));
+                    activity?.SetTag("cart.storage.degraded", true);
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
