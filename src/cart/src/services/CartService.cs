@@ -60,7 +60,7 @@ public class CartService : Oteldemo.CartService.CartServiceBase
             {
                 totalCart += item.Quantity;
             }
-            activity?.SetTag("demo.cart.items.count", totalCart);
+            activity?.SetTag("demo.cart.items.tag", totalCart);
 
             return cart;
         }
@@ -82,7 +82,16 @@ public class CartService : Oteldemo.CartService.CartServiceBase
         {
             if (await _featureFlagHelper.GetBooleanValueAsync("cartFailure", false))
             {
-                await _badCartStore.EmptyCartAsync(request.UserId);
+                try
+                {
+                    await _badCartStore.EmptyCartAsync(request.UserId);
+                }
+                catch (RpcException)
+                {
+                    // cartFailure flag is active but bad store is unreachable — fall back to real store
+                    // so that the user's cart is still emptied rather than leaving checkout in a broken state.
+                    await _cartStore.EmptyCartAsync(request.UserId);
+                }
             }
             else
             {
