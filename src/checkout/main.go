@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -522,17 +523,32 @@ func (cs *checkout) emptyUserCart(ctx context.Context, userID string) error {
 	return nil
 }
 
+// sanitizeProductID strips any non-alphanumeric characters from a product ID.
+// Route-template placeholders (e.g. "{productId}") can be forwarded verbatim
+// by some proxy configurations, producing IDs like "OLJCESPC7Z}" that fail DB
+// lookups. Stripping the stray characters before the RPC call prevents spurious
+// "Product Not Found" errors on otherwise valid SKUs.
+func sanitizeProductID(id string) string {
+	return strings.Map(func(r rune) rune {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return -1
+	}, id)
+}
+
 func (cs *checkout) prepOrderItems(ctx context.Context, items []*pb.CartItem, userCurrency string) ([]*pb.OrderItem, error) {
 	out := make([]*pb.OrderItem, len(items))
 
 	for i, item := range items {
-		product, err := cs.productCatalogSvcClient.GetProduct(ctx, &pb.GetProductRequest{Id: item.GetProductId()})
+		productId := sanitizeProductID(item.GetProductId())
+		product, err := cs.productCatalogSvcClient.GetProduct(ctx, &pb.GetProductRequest{Id: productId})
 		if err != nil {
-			return nil, fmt.Errorf("failed to get product #%q", item.GetProductId())
+			return nil, fmt.Errorf("failed to get product #%q", productId)
 		}
 		price, err := cs.convertCurrency(ctx, product.GetPriceUsd(), userCurrency)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert price of %q to %s", item.GetProductId(), userCurrency)
+			return nil, fmt.Errorf("failed to convert price of %q to %s", productId, userCurrency)
 		}
 		out[i] = &pb.OrderItem{
 			Item: item,
