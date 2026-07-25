@@ -88,16 +88,32 @@ public class ValkeyCartStore : ICartStore
 
             Log.RedisConnecting(_logger, _connectionString);
 
-            _redis = ConnectionMultiplexer.Connect(_redisConnectionOptions);
-
-            if (_redis == null || !_redis.IsConnected)
+            ConnectionMultiplexer newConnection = null;
+            try
             {
-                Log.RedisConnectionFailed(_logger);
+                newConnection = ConnectionMultiplexer.Connect(_redisConnectionOptions);
 
-                // We weren't able to connect to Redis despite some retries with exponential backoff.
-                throw new ApplicationException("Wasn't able to connect to redis");
+                if (newConnection == null || !newConnection.IsConnected)
+                {
+                    Log.RedisConnectionFailed(_logger);
+
+                    // Dispose the failed connection object so subsequent calls can attempt a clean reconnect.
+                    newConnection?.Dispose();
+                    _redis = null;
+
+                    // We weren't able to connect to Redis despite some retries with exponential backoff.
+                    throw new ApplicationException("Wasn't able to connect to redis");
+                }
+            }
+            catch (Exception) when (newConnection != null)
+            {
+                // If Connect itself threw (e.g. DNS failure), dispose the partially-created object.
+                newConnection.Dispose();
+                _redis = null;
+                throw;
             }
 
+            _redis = newConnection;
             Log.RedisConnected(_logger);
             var cache = _redis.GetDatabase();
 
