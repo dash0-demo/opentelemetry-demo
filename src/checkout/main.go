@@ -400,7 +400,10 @@ func (cs *checkout) PlaceOrder(ctx context.Context, req *pb.PlaceOrderRequest) (
 	// send to kafka only if kafka broker address is set
 	if cs.kafkaBrokerSvcAddr != "" {
 		logger.Info("sending to postProcessor")
-		cs.sendToPostProcessor(ctx, orderResult)
+		// Use context.WithoutCancel so the Kafka publish can complete even after
+		// the gRPC response is returned and the request context is cancelled.
+		// This prevents the blocking Kafka ACK wait from adding latency to PlaceOrder.
+		go cs.sendToPostProcessor(context.WithoutCancel(ctx), orderResult)
 	}
 
 	resp := &pb.PlaceOrderResponse{Order: orderResult}
