@@ -535,19 +535,21 @@ var failingProductIDs = map[string]struct{}{
 // productCatalogFailurePercent is the percentage of GetProduct calls (against
 // the SKUs in failingProductIDs) that return an internal error when the
 // productCatalogFailure flag is on. Read once at startup from the env var
-// PRODUCT_CATALOG_FAILURE_PERCENT (0..100). Defaults to 100 — matching the
-// pre-config behaviour where the flag being on meant every affected request
-// failed. Values outside 0..100 are clamped.
+// PRODUCT_CATALOG_FAILURE_PERCENT (0..100). Defaults to 0 — so that enabling
+// the feature flag alone has no effect until an explicit failure rate is also
+// configured. This prevents accidental 100% error injection in environments
+// where the flag is on but no failure rate was explicitly set.
+// Values outside 0..100 are clamped.
 var productCatalogFailurePercent = readFailurePercentFromEnv()
 
 func readFailurePercentFromEnv() int {
 	raw := os.Getenv("PRODUCT_CATALOG_FAILURE_PERCENT")
 	if raw == "" {
-		return 100
+		return 0
 	}
 	v, err := strconv.Atoi(raw)
 	if err != nil {
-		return 100
+		return 0
 	}
 	if v < 0 {
 		return 0
