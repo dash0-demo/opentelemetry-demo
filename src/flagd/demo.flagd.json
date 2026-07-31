@@ -2,27 +2,13 @@
   "$schema": "https://flagd.dev/schema/v0/flags.json",
   "flags": {
     "productCatalogFailure": {
-      "description": "Fail product catalog service on a specific product",
+      "description": "Fail product catalog service on a set of hardcoded product IDs (arm-switch: on/off)",
       "state": "ENABLED",
       "variants": {
         "on": true,
         "off": false
       },
-      "defaultVariant": "off",
-      "targeting": {
-        "if": [
-          {
-            "in": [
-              {
-                "var": "product_id"
-              },
-              ["OLJCESPC7Z", "L9ECAV7KIM", "6E92ZMYYFZ", "9SIQT8TOJO", "HQTGWGPNH4"]
-            ]
-          },
-          "on",
-          "off"
-        ]
-      }
+      "defaultVariant": "off"
     },
     "recommendationCacheFailure": {
       "description": "Fail recommendation service cache",
