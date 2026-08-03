@@ -135,6 +135,7 @@ PROBE_PRODUCTS = [
     "LS4PSXUNUM",
     "OLJCESPC7Z",
     "HQTGWGPNH4",
+    "ZFYYMZ29E6",
 ]
 
 # Checkout payload, mirroring an entry from src/load-generator/people.json. The
