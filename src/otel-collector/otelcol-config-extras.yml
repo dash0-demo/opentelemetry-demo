@@ -31,3 +31,49 @@
 #       exporters: [otlp_http/prometheus, debug, otlp_grpc/mybackend]           # repeat upstream exporters
 #     logs:
 #       exporters: [opensearch, debug, otlp_grpc/mybackend]                     # repeat upstream exporters
+
+# ---------------------------------------------------------------------------
+# Log spam filter
+#
+# The services below emit high-volume, low-value logs that duplicate
+# information already available in spans:
+#
+#   productcatalogservice  ~443k/day  "Product Found - ID: ..." INFO on every
+#                                     successful lookup; the ERROR counterpart
+#                                     "Product Id Lookup Failed: ..." is kept.
+#
+#   adservice              ~94k/day   DEBUG logs ("received getAds request",
+#                                     "checking adServiceFailure feature flag")
+#                                     are development-time only and should not
+#                                     reach production indexing pipelines.
+#
+#   OtelSnsPublisher       ~26k/day   INFO logs with an empty body carry zero
+#                                     diagnostic content.
+#
+#   OtelSqsDebuggerLambda  ~26k/day   "started/stopped forwarding data" are
+#                                     lambda lifecycle heartbeats already
+#                                     covered by span presence/absence.
+#
+# Estimated savings: ~590k logs/day while retaining all WARN+ and ERROR signals.
+# ---------------------------------------------------------------------------
+
+processors:
+  filter/drop_noisy_logs:
+    error_mode: ignore
+    logs:
+      log_record:
+        # productcatalogservice: drop per-request "Product Found" INFO logs;
+        # keep ERROR "Product Id Lookup Failed: ..." and all WARN+.
+        - 'resource.attributes["service.name"] == "productcatalogservice" and severity_number < SEVERITY_NUMBER_WARN and IsMatch(body, "^Product Found")'
+        # adservice: drop all DEBUG logs (feature-flag checks, request receipt).
+        - 'resource.attributes["service.name"] == "adservice" and severity_number <= SEVERITY_NUMBER_DEBUG'
+        # OtelSnsPublisher: drop INFO logs whose body is empty.
+        - 'resource.attributes["service.name"] == "OtelSnsPublisher" and severity_number == SEVERITY_NUMBER_INFO and body == ""'
+        # OtelSqsDebuggerLambda: drop "started/stopped forwarding data" lifecycle lines.
+        - 'resource.attributes["service.name"] == "OtelSqsDebuggerLambda" and severity_number == SEVERITY_NUMBER_INFO and (body == "started forwarding data" or body == "stopped forwarding data")'
+
+service:
+  pipelines:
+    logs:
+      processors: [resourcedetection, memory_limiter, transform/sanitize_logs, filter/drop_noisy_logs]
+      exporters: [debug, opensearch]
