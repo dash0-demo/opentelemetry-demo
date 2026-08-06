@@ -2,13 +2,27 @@
   "$schema": "https://flagd.dev/schema/v0/flags.json",
   "flags": {
     "productCatalogFailure": {
-      "description": "Fail product catalog service on a set of hardcoded product IDs (arm-switch: on/off)",
-      "state": "ENABLED",
+      "description": "Fail product catalog service on a specific product",
+      "state": "DISABLED",
       "variants": {
         "on": true,
         "off": false
       },
-      "defaultVariant": "off"
+      "defaultVariant": "off",
+      "targeting": {
+        "if": [
+          {
+            "==": [
+              {
+                "var": "product_id"
+              },
+              "OLJCESPC7Z"
+            ]
+          },
+          "off",
+          "off"
+        ]
+      }
     },
     "recommendationCacheFailure": {
       "description": "Fail recommendation service cache",
