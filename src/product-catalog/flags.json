@@ -4,7 +4,21 @@
     "productCatalogFailure": {
       "defaultValue": false,
       "description": "simulates a potential product catalog failure scenario",
-      "flagType": "boolean"
+      "flagType": "boolean",
+      "targeting": {
+        "if": [
+          {
+            "==": [
+              {
+                "var": "product_id"
+              },
+              "OLJCESPC7Z"
+            ]
+          },
+          "on",
+          "off"
+        ]
+      }
     }
   }
 }
