@@ -3,26 +3,12 @@
   "flags": {
     "productCatalogFailure": {
       "description": "Fail product catalog service on a specific product",
-      "state": "DISABLED",
+      "state": "ENABLED",
       "variants": {
         "on": true,
         "off": false
       },
-      "defaultVariant": "off",
-      "targeting": {
-        "if": [
-          {
-            "==": [
-              {
-                "var": "product_id"
-              },
-              "OLJCESPC7Z"
-            ]
-          },
-          "off",
-          "off"
-        ]
-      }
+      "defaultVariant": "off"
     },
     "recommendationCacheFailure": {
       "description": "Fail recommendation service cache",
