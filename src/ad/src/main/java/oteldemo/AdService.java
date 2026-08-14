@@ -236,7 +236,7 @@ public final class AdService {
 
         // Throw 1/10 of the time to simulate a failure when the feature flag is enabled
         if (ffClient.getBooleanValue(AD_FAILURE, false, evaluationContext) && random.nextInt(10) == 0) {
-          throw new StatusRuntimeException(Status.UNAVAILABLE);
+          throw new StatusRuntimeException(Status.RESOURCE_EXHAUSTED);
         }
 
         if (ffClient.getBooleanValue(AD_MANUAL_GC_FEATURE_FLAG, false, evaluationContext)) {
