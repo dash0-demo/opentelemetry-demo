@@ -8,7 +8,21 @@
         "on": true,
         "off": false
       },
-      "defaultVariant": "off"
+      "defaultVariant": "off",
+      "targeting": {
+        "if": [
+          {
+            "==": [
+              {
+                "var": "product_id"
+              },
+              "OLJCESPC7Z"
+            ]
+          },
+          "off",
+          "on"
+        ]
+      }
     },
     "recommendationCacheFailure": {
       "description": "Fail recommendation service cache",
