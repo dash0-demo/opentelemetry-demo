@@ -17,9 +17,16 @@ const handler = async ({ method, query }: NextApiRequest, res: NextApiResponse<T
         sessionId as string,
         productIds as string[]
       );
-      const recommendedProductList = await Promise.all(
+      // Use allSettled so a transient GetProduct failure (e.g. the
+      // productCatalogFailure feature-flag fault injection) does not cause the
+      // entire recommendations response to return HTTP 500. Only successfully
+      // resolved products are included in the response.
+      const results = await Promise.allSettled(
         productList.slice(0, 4).map(id => ProductCatalogService.getProduct(id, currencyCode as string))
       );
+      const recommendedProductList = results
+        .filter((r): r is PromiseFulfilledResult<Product> => r.status === 'fulfilled')
+        .map(r => r.value);
 
       return res.status(200).json(recommendedProductList);
     }
