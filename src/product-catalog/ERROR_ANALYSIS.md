@@ -1,121 +1,111 @@
-# productcatalogservice Error Analysis
+# productcatalogservice — Error Analysis
 
-> Analyzed window: 2026-07-09 07:15 UTC – 07:45 UTC (30 minutes)
-> Service health: **critical** — 1.14 % error rate across 11 272 requests
-> Active alert: `Product Catalog returns > 0.6% errors`
-
-## Error summary
-
-| # | Error type | gRPC code | Count (30 min sample) | Relative weight | Affected operation |
-|---|-----------|-----------|----------------------|-----------------|-------------------|
-| 1 | `Product Id Lookup Failed` (feature-flag injection) | 13 INTERNAL | ~85 % of errors | High | `GetProduct` |
-| 2 | `Product Id Not Found` (unknown product ID in DB) | 5 NOT_FOUND | ~15 % of errors | Medium | `GetProduct` |
-
-Both error types are limited to `GetProduct`. `ListProducts` and `SearchProducts` show zero errors in the same window.
+> Time window: 2026-08-21 07:46 – 08:16 UTC (30 min)
+> Service: `productcatalogservice` / namespace `opentelemetry-demo`
+> Overall error rate: **1.14 %** (135 error spans out of 12 784 total)
+> Health status: **critical** (active failed check: "Product Catalog returns > 0.6% errors")
 
 ---
 
-## Error 1 — Feature-flag–induced failure injection (INTERNAL / gRPC 13)
+## Error patterns ranked by impact
 
-### What happens
+### 1 — Feature-flag-injected INTERNAL error on `GetProduct` (~81 % of all errors)
 
-`checkProductFailure` in `main.go` (line 547) checks two conditions before returning `true`:
+| Attribute | Value |
+|---|---|
+| gRPC status code | `13` (INTERNAL) |
+| `otel.span.status.message` | `Product Id Lookup Failed: OLJCESPC7Z` |
+| `app.product.id` | `OLJCESPC7Z` (National Park Foundation Explorascope 60mm) |
+| Correlation coefficient vs all errors | **+81 %** |
+| Exemplar trace | `fa67addd05b55310c18d747c57c8a527` span `237a00fce96a4f11` |
 
-1. The requested product ID is in `failingProductIDs` (five hardcoded SKUs).
-2. The `productCatalogFailure` feature flag is evaluated as `true` by flagd.
+**Cause:** The `productCatalogFailure` feature flag (evaluated via flagd) is
+**enabled** for a hardcoded set of product SKUs (see `failingProductIDs` in
+`main.go`). When enabled, `checkProductFailure` returns `true` for those SKUs
+and `GetProduct` immediately returns `codes.Internal` without querying the DB.
+The flag was active during the analysis window, producing a ~1.14 % error rate
+across the 9 524 `GetProduct` requests.
 
-When both conditions are met the span status is set to ERROR with message  
-`"Error: Product Catalog Fail Feature Flag Enabled"` and gRPC `codes.Internal` (13) is returned.
+**Callers affected:** `frontend` (131 errors / 9 708 calls) and `checkoutservice`
+(2 errors / 234 calls) both degrade when this flag is on. The `frontend` service
+is marked **critical** as a result.
 
-### Trigger chain observed in traces
-
-```
-OtelSqsDebuggerLambda (ERROR)
-  └─ frontend GET (ERROR)
-       └─ frontend → productcatalogservice GetProduct CLIENT (ERROR)
-            └─ productcatalogservice GetProduct SERVER (ERROR)  ← error here
-                 └─ FeatureFlagService EvaluateProbabilityFeatureFlag CLIENT (UNSET)
-```
-
-The feature-flag call *succeeds* (UNSET = OK); the error is a deliberate outcome returned by flagd based on the flag's configured probability. The affected SKU observed is `OLJCESPC7Z` (National Park Foundation Explorascope 60mm). The five targeted SKUs are:
-
-- `OLJCESPC7Z`
-- `L9ECAV7KIM`
-- `6E92ZMYYFZ`
-- `9SIQT8TOJO`
-- `HQTGWGPNH4`
-
-### Impact
-
-- All callers of `GetProduct` for the above SKUs receive `codes.Internal`.
-- The frontend and checkout services both surface these as HTTP 500 responses.
-- The error rate (1.41 % on GetProduct) is high enough to breach the 0.6 % alert threshold.
-- Because the error is intentional demo behavior, this is expected when the flag is on; the alert fires by design.
-
-### Remediation options
-
-| Option | Effect |
-|--------|--------|
-| Disable the `productCatalogFailure` feature flag in flagd | Errors stop immediately |
-| Set env var `PRODUCT_CATALOG_FAILURE_PERCENT=0` | Errors stop even if flag is on |
-| Reduce `PRODUCT_CATALOG_FAILURE_PERCENT` (e.g., 10) | Lowers rate; alert may still fire |
+**How to remediate:**
+- To stop error injection: disable the `productCatalogFailure` feature flag in
+  flagd (`src/flagd/demo.flagd.json` — toggle `productCatalogFailure` to `false`).
+- To reduce blast radius while the flag stays on: lower
+  `PRODUCT_CATALOG_FAILURE_PERCENT` (env var, default `100`) — e.g. `10` injects
+  errors on only 10 % of calls to the targeted SKUs.
+- To narrow the targeted SKUs: edit `failingProductIDs` in `main.go` to remove
+  high-traffic entries.
 
 ---
 
-## Error 2 — Product ID not found in database (NOT_FOUND / gRPC 5)
+### 2 — Product-not-found NOT_FOUND on `GetProduct` (~18 % of all errors)
 
-### What happens
+| Attribute | Value |
+|---|---|
+| gRPC status code | `5` (NOT_FOUND) |
+| `otel.span.status.message` | `Product Id Not Found: ZFYYMZ29E6` |
+| `app.product.id` | `ZFYYMZ29E6` |
+| Correlation coefficient vs all errors | **+18 %** |
+| Exemplar trace | `3864f3ac08493ff06618ecc6775e8c32` span `c4d412829adef060` |
 
-`getProductFromDB` (line 346) queries PostgreSQL for the requested product ID.  
-When the row is absent (`sql.ErrNoRows`), it returns `fmt.Errorf("product not found")`.  
-`GetProduct` catches any error from `getProductFromDB` and returns gRPC `codes.NotFound` (5)  
-with message `"Product Not Found: <id>"`.
+**Cause:** The product ID `ZFYYMZ29E6` is requested by callers (load-generator
+or frontend) but does not exist in the product catalog DB. `GetProduct` returns
+`codes.NotFound` after failing the DB lookup. This is not caused by the feature
+flag — the span has no `featureflagservice` child, confirming the NOT_FOUND path
+is reached directly.
 
-Representative failing IDs observed: `ZFYYMZ29E6`, and others not in `failingProductIDs`.  
-These spans complete very quickly (60–200 µs) — consistent with a fast DB miss — with no child spans,  
-meaning the feature-flag path was not taken and the DB returned no row.
+`ZFYYMZ29E6` is **not** in the `failingProductIDs` set, confirming this is a
+genuine missing-product scenario, not injected failure.
 
-### Trigger chain observed in traces
-
-```
-frontend HTTP GET (ERROR)
-  └─ frontend → productcatalogservice GetProduct CLIENT (ERROR)
-       └─ productcatalogservice GetProduct SERVER (ERROR)  ← DB miss, no children
-```
-
-### Impact
-
-- Lower frequency than Error 1 but still contributes to the overall error rate.
-- Each caller receives `codes.NotFound`, which the frontend maps to a 404-class response.
-- These errors suggest callers are requesting product IDs that do not exist in the `catalog.products` table.
-
-### Remediation options
-
-| Option | Effect |
-|--------|--------|
-| Audit product IDs passed by recommendation/checkout services against the DB catalog | Eliminate stale references |
-| Add a startup consistency check that validates the demo's hardcoded product list against the DB | Catch catalog drift at deploy time |
-| Log the full product ID to an `app.product.id` span attribute on errors | Already implemented (attribute present on spans) — no change needed |
+**How to remediate:**
+- Verify whether `ZFYYMZ29E6` should exist in the DB. If deleted, restore it or
+  remove it from the load generator's product ID pool.
+- If this is load-generator churn: update `src/load-generator` to only request
+  product IDs present in the seed data.
 
 ---
 
 ## Downstream impact
 
-| Dependent service | Errors from productcatalogservice (30 min) |
-|------------------|--------------------------------------------|
-| frontend | 121 |
-| checkoutservice | 1 |
-| recommendationservice | 0 (no errors attributed) |
+| Caller | Errors from productcatalogservice | Total calls | Impact |
+|---|---|---|---|
+| `frontend` | 131 | 9 708 | 1.35 % error rate on product pages |
+| `checkoutservice` | 2 | 234 | < 1 % |
+| `recommendationservice` | 0 | 1 622 | None (uses `ListProducts`, not `GetProduct`) |
 
-The `frontend` service bears the highest customer-facing impact from these errors.
+The `ListProducts` operation (2 307 calls) has **0 % errors** — only `GetProduct`
+is affected.
 
 ---
 
-## Code references
+## Span-level evidence
 
-- Error 1 injection: `src/product-catalog/main.go` lines 458–470 (`GetProduct`), 547–561 (`checkProductFailure`)
-- Failing SKU set: `src/product-catalog/main.go` lines 513–519 (`failingProductIDs`)
-- Failure percent config: `src/product-catalog/main.go` lines 527–545 (`readFailurePercentFromEnv`)
-- Error 2 — DB not-found path: `src/product-catalog/main.go` lines 346–371 (`getProductFromDB`)
+```
+# Error 1 — INTERNAL (feature flag)
+traceId:  fa67addd05b55310c18d747c57c8a527
+spanId:   237a00fce96a4f11
+status:   ERROR  |  gRPC 13 (INTERNAL)
+message:  "Product Id Lookup Failed: OLJCESPC7Z"
+child:    oteldemo.FeatureFlagService/EvaluateProbabilityFeatureFlag → UNSET (flag returned true)
 
-Assisted-by: Claude Sonnet 4.6
+# Error 2 — NOT_FOUND (missing product)
+traceId:  3864f3ac08493ff06618ecc6775e8c32
+spanId:   c4d412829adef060
+status:   ERROR  |  gRPC 5 (NOT_FOUND)
+message:  "Product Id Not Found: ZFYYMZ29E6"
+child:    (none — DB lookup failed, no feature-flag call)
+```
+
+---
+
+## Relevant source locations
+
+| File | What to change |
+|---|---|
+| `src/product-catalog/main.go` — `failingProductIDs` | Add/remove SKUs subject to failure injection |
+| `src/product-catalog/main.go` — env `PRODUCT_CATALOG_FAILURE_PERCENT` | Reduce injection rate below 100 % |
+| `src/flagd/demo.flagd.json` | Toggle `productCatalogFailure` flag on/off |
+| `src/load-generator/...` | Remove `ZFYYMZ29E6` from product ID pool if absent from DB seed data |
