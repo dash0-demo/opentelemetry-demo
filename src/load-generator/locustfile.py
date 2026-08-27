@@ -105,6 +105,7 @@ products = [
     "LS4PSXUNUM",
     "OLJCESPC7Z",
     "HQTGWGPNH4",
+    "ZFYYMZ29E6",
 ]
 
 people_file = open('people.json')
