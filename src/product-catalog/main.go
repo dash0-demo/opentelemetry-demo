@@ -472,7 +472,7 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 	}, req.Id)
 
 	span.SetAttributes(
-		attribute.String("demo.product.id", productId),
+		attribute.String("app.product.id", productId),
 	)
 
 	// GetProduct will fail on a specific set of products, at a configurable
@@ -491,8 +491,8 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 	}
 
 	span.SetAttributes(
-		attribute.String("demo.product.id", productId),
-		attribute.String("demo.product.name", found.Name),
+		attribute.String("app.product.id", productId),
+		attribute.String("app.product.name", found.Name),
 	)
 
 	logger.LogAttrs(
