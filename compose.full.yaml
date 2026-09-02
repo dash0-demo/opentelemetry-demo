@@ -55,7 +55,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 300M
+          memory: 400M
     restart: unless-stopped
     environment:
       - FLAGD_HOST
