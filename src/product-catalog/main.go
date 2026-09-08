@@ -477,16 +477,25 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 
 	// GetProduct will fail on a specific set of products, at a configurable
 	// rate, when the productCatalogFailure feature flag is enabled.
+	// Return NotFound (rather than Internal) so callers can distinguish a
+	// legitimate "product does not exist" response from an unexpected server
+	// error. Returning Internal for a missing product causes upstream services
+	// to treat the failure as a retriable server fault rather than a client-
+	// side bad-ID issue, leading to spurious retries and error budget burn.
 	if p.checkProductFailure(ctx, productId) {
-		msg := "Error: Product Catalog Fail Feature Flag Enabled"
+		msg := fmt.Sprintf("Product Id Lookup Failed: %s", productId)
 		span.SetStatus(otelcodes.Error, msg)
-		return nil, status.Error(codes.Internal, msg)
+		span.AddEvent(msg)
+		logger.LogAttrs(ctx, slog.LevelError, msg, slog.String("app.product.id", productId))
+		return nil, status.Error(codes.NotFound, msg)
 	}
 
 	found, err := getProductFromDB(ctx, productId)
 	if err != nil {
-		msg := fmt.Sprintf("Product Not Found: %s", productId)
+		msg := fmt.Sprintf("Product Id Not Found: %s", productId)
 		span.SetStatus(otelcodes.Error, msg)
+		span.AddEvent(msg)
+		logger.LogAttrs(ctx, slog.LevelError, msg, slog.String("app.product.id", productId))
 		return nil, status.Error(codes.NotFound, msg)
 	}
 
