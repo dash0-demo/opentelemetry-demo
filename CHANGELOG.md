@@ -7,6 +7,10 @@ the release.
 
 ## Unreleased
 
+* [frontend] Map gRPC status codes onto HTTP status codes in the API route
+  middleware, so a `NOT_FOUND` from `product-catalog` returns 404 instead of 500
+  and no longer marks the SERVER span as an error
+  ([#331](https://github.com/dash0-demo/opentelemetry-demo/pull/331))
 * [accounting] Run the Kafka consumer as a hosted background service so process
   shutdown can stop the consumer cleanly
   ([#3608](https://github.com/open-telemetry/opentelemetry-demo/pull/3608))
