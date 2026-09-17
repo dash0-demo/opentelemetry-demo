@@ -7,6 +7,12 @@ the release.
 
 ## Unreleased
 
+* [product-catalog] Return `NOT_FOUND` without an ERROR span status when a
+  requested product ID does not exist, and keep `INTERNAL` + ERROR for real
+  lookup failures instead of reporting a database error as `NOT_FOUND`
+* [frontend] Map upstream gRPC client-caused failures to their HTTP equivalents
+  (`NOT_FOUND` to 404 rather than 500) and only mark the span as ERROR for 5xx
+  responses
 * [accounting] Run the Kafka consumer as a hosted background service so process
   shutdown can stop the consumer cleanly
   ([#3608](https://github.com/open-telemetry/opentelemetry-demo/pull/3608))
