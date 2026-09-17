@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -343,6 +344,12 @@ func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, err
 	return products, nil
 }
 
+// errProductNotFound reports that the catalog holds no product with the
+// requested ID. It is a sentinel so callers can tell "the client asked for
+// something that does not exist" apart from "the lookup itself failed": the
+// first is a normal outcome, the second is a server fault.
+var errProductNotFound = errors.New("product not found")
+
 func getProductFromDB(ctx context.Context, productID string) (*pb.Product, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database connection not initialized")
@@ -361,8 +368,8 @@ func getProductFromDB(ctx context.Context, productID string) (*pb.Product, error
 	var nanos int32
 
 	if err := row.Scan(&id, &name, &description, &picture, &currencyCode, &units, &nanos, &categoriesStr); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("product not found")
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %s", errProductNotFound, productID)
 		}
 		return nil, fmt.Errorf("failed to scan product row: %w", err)
 	}
@@ -485,9 +492,33 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 
 	found, err := getProductFromDB(ctx, productId)
 	if err != nil {
-		msg := fmt.Sprintf("Product Not Found: %s", productId)
+		// A missing product is the client asking for something that does not
+		// exist, not a fault of this service: report NOT_FOUND and leave the
+		// span status unset so it is not counted as a server error. Anything
+		// else (database unreachable, malformed row) is a real failure and has
+		// to stay INTERNAL and ERROR — mapping it to NOT_FOUND previously told
+		// callers "no such product" while the database was down.
+		if errors.Is(err, errProductNotFound) {
+			msg := fmt.Sprintf("Product Not Found: %s", productId)
+			span.SetAttributes(attribute.Bool("demo.product.found", false))
+			span.AddEvent(msg)
+			logger.LogAttrs(
+				ctx,
+				slog.LevelInfo, "Product Not Found",
+				slog.String("demo.product.id", productId),
+			)
+			return nil, status.Error(codes.NotFound, msg)
+		}
+
+		msg := fmt.Sprintf("failed to load product %s: %v", productId, err)
 		span.SetStatus(otelcodes.Error, msg)
-		return nil, status.Error(codes.NotFound, msg)
+		logger.LogAttrs(
+			ctx,
+			slog.LevelError, "Product Lookup Failed",
+			slog.String("demo.product.id", productId),
+			slog.String("error", err.Error()),
+		)
+		return nil, status.Error(codes.Internal, msg)
 	}
 
 	span.SetAttributes(
