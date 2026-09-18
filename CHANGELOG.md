@@ -7,6 +7,10 @@ the release.
 
 ## Unreleased
 
+* [frontend] Map gRPC client-error statuses from backend services onto 4xx HTTP
+  responses in the API routes instead of returning 500 for every failure, so a
+  request for a product ID that does not exist answers `404` rather than being
+  counted as a server error
 * [accounting] Run the Kafka consumer as a hosted background service so process
   shutdown can stop the consumer cleanly
   ([#3608](https://github.com/open-telemetry/opentelemetry-demo/pull/3608))
