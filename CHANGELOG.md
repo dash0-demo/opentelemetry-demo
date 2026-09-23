@@ -7,6 +7,11 @@ the release.
 
 ## Unreleased
 
+* [frontend] Map gRPC status codes returned by backend services to the
+  equivalent HTTP status codes in `InstrumentationMiddleware` instead of
+  answering 500 for every rejected call, so a missing product now yields 404
+  and no longer counts towards the service error rate
+  ([#335](https://github.com/dash0-demo/opentelemetry-demo/pull/335))
 * [accounting] Run the Kafka consumer as a hosted background service so process
   shutdown can stop the consumer cleanly
   ([#3608](https://github.com/open-telemetry/opentelemetry-demo/pull/3608))
