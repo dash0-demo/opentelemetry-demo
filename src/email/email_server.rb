@@ -35,10 +35,17 @@ end
 
 $logger = OpenTelemetry.logger_provider.logger(name: 'email')
 
+# Build the OpenFeature client once instead of per request
+$flag_client = OpenFeature::SDK.build_client
+
 otlp_metric_exporter = OpenTelemetry::Exporter::OTLP::Metrics::MetricsExporter.new
 OpenTelemetry.meter_provider.add_metric_reader(otlp_metric_exporter)
 meter = OpenTelemetry.meter_provider.meter("email")
 $confirmation_counter = meter.create_counter("demo.notification.confirmations", unit: "1", description: "Counts the number of order confirmation emails sent")
+# Makes the emailMemoryLeak scenario attributable from telemetry alone: without these,
+# growing container memory cannot be told apart from an unintentional leak.
+$retained_bytes_counter = meter.create_counter("demo.email.retained_delivery_bytes", unit: "By", description: "Bytes of email bodies deliberately retained in the test mailer by the emailMemoryLeak feature flag")
+$retained_deliveries_counter = meter.create_counter("demo.email.retained_deliveries", unit: "1", description: "Number of email deliveries deliberately retained in the test mailer by the emailMemoryLeak feature flag")
 
 post "/send_order_confirmation" do
   data = JSON.parse(request.body.read, object_class: OpenStruct)
@@ -63,18 +70,18 @@ def send_email(data)
   tracer = OpenTelemetry.tracer_provider.tracer('email')
   tracer.in_span("send_email") do |span|
     # Check if memory leak flag is enabled
-    client = OpenFeature::SDK.build_client
-    memory_leak_multiplier = client.fetch_number_value(flag_key: "emailMemoryLeak", default_value: 0)
+    memory_leak_multiplier = $flag_client.fetch_number_value(flag_key: "emailMemoryLeak", default_value: 0)
 
     # To speed up the memory leak we create a long email body
     confirmation_content = erb(:confirmation, locals: { order: data.order })
     whitespace_length = [0, confirmation_content.length * (memory_leak_multiplier-1)].max
+    body = confirmation_content + " " * whitespace_length
 
     Pony.mail(
       to:       data.email,
       from:     "noreply@example.com",
       subject:  "Your confirmation email",
-      body:     confirmation_content + " " * whitespace_length,
+      body:     body,
       via:      :test
     )
 
@@ -82,8 +89,16 @@ def send_email(data)
     # We use this to create a memory leak.
     if memory_leak_multiplier < 1
       Mail::TestMailer.deliveries.clear
+    else
+      # The leak is deliberate, but it has to be attributable: report how much is
+      # being retained and under which flag value, so container memory growth can
+      # be traced back to this scenario instead of being investigated as a defect.
+      $retained_bytes_counter.add(body.bytesize, attributes: { "demo.email.memory_leak.multiplier" => memory_leak_multiplier })
+      $retained_deliveries_counter.add(1, attributes: { "demo.email.memory_leak.multiplier" => memory_leak_multiplier })
     end
 
+    span.set_attribute("demo.email.memory_leak.multiplier", memory_leak_multiplier)
+    span.set_attribute("demo.email.retained_deliveries", Mail::TestMailer.deliveries.length)
     span.set_attribute("demo.order.id", data.order.order_id)
     $logger.on_emit(
       timestamp: Time.now,
