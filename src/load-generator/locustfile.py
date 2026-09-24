@@ -9,7 +9,11 @@ import random
 import uuid
 import logging
 
+import asyncio
+import gevent
+
 from locust import HttpUser, task, between
+from locust_plugins.users import playwright as playwright_plugin
 from locust_plugins.users.playwright import PlaywrightUser, pw, PageWithRetry, event
 
 from opentelemetry import context, baggage, trace
@@ -222,6 +226,72 @@ if browser_traffic_enabled:
     class WebsiteBrowserUser(PlaywrightUser):
         headless = True  # to use a headless browser, without a GUI
 
+        # PlaywrightUser launches one Chromium in its constructor and never closes it,
+        # so the browser process lives as long as the load generator itself. Every task
+        # opens and closes a fresh BrowserContext, but the browser process keeps the
+        # memory and the on-disk profile cache that those contexts leave behind, so its
+        # footprint grows for as long as the process runs. Recycling the browser every
+        # N tasks bounds that growth; the Playwright driver is reused, so the cost is a
+        # browser launch every N iterations.
+        browser_recycle_after_tasks = int(os.environ.get("LOCUST_BROWSER_RECYCLE_AFTER_TASKS", "200"))
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            # A list, so the shallow sub-user copies PlaywrightUser makes share the count.
+            self.browser_task_count = [0]
+            for sub_user in self.sub_users:
+                sub_user.browser_task_count = self.browser_task_count
+
+        async def recycle_browser_if_needed(self):
+            """Close and relaunch Chromium once it has served browser_recycle_after_tasks tasks.
+
+            Called from inside a @pw task, so it leaves a live BrowserContext and Page
+            behind for the @pw wrapper to close when the task finishes. Assumes the
+            default multiplier of 1, i.e. one browser per user.
+            """
+            self.browser_task_count[0] += 1
+            if self.browser_recycle_after_tasks <= 0:
+                return
+            if self.browser_task_count[0] < self.browser_recycle_after_tasks:
+                return
+            self.browser_task_count[0] = 0
+            logging.info(f"Recycling headless browser after {self.browser_recycle_after_tasks} tasks")
+            try:
+                if self.page is not None:
+                    await self.page.close()
+                if self.browser_context is not None:
+                    await self.browser_context.close()
+                if self.browser is not None:
+                    await self.browser.close()
+                self.browser = None
+                self.browser_context = None
+                await self._pwprep()  # relaunches Chromium, reuses the Playwright driver
+                self.browser_context = await self.browser.new_context(ignore_https_errors=True, base_url=self.host)
+                self.page = await self.browser_context.new_page()
+            except Exception as e:
+                logging.error(f"Error recycling headless browser: {str(e)}")
+
+        def on_stop(self):
+            # PlaywrightUser has no teardown, so a stopped user would otherwise leave its
+            # Chromium and its Playwright driver running for the life of the process.
+            for user in self.sub_users or [self]:
+                try:
+                    future = asyncio.run_coroutine_threadsafe(user.close_browser(), playwright_plugin.loop)
+                    while not future.done():
+                        gevent.sleep(0.1)
+                    future.result()
+                except Exception as e:
+                    logging.error(f"Error closing headless browser: {str(e)}")
+
+        async def close_browser(self):
+            if self.browser is not None:
+                await self.browser.close()
+                self.browser = None
+            self.browser_context = None
+            if self.playwright is not None:
+                await self.playwright.stop()
+                self.playwright = None
+
         @task
         @pw
         async def open_cart_page_and_change_currency(self, page: PageWithRetry):
@@ -236,6 +306,7 @@ if browser_traffic_enabled:
                     logging.info("Currency changed to CHF")
                 except Exception as e:
                     logging.error(f"Error in change currency task: {str(e)}")
+            await self.recycle_browser_if_needed()
 
         @task
         @pw
@@ -260,6 +331,7 @@ if browser_traffic_enabled:
                     logging.info("Product added to cart successfully")
                 except Exception as e:
                     logging.error(f"Error in add to cart task: {str(e)}")
+            await self.recycle_browser_if_needed()
 
 async def add_baggage_header(route: Route, request: Request):
     existing_baggage = request.headers.get('baggage', '')
