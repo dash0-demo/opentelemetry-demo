@@ -12,6 +12,7 @@ the release.
   `send_email` span, and emit `demo.email.retained_delivery_bytes` /
   `demo.email.retained_deliveries` counters while the leak is active. Also build
   the OpenFeature client once at startup instead of once per request
+  ([#336](https://github.com/dash0-demo/opentelemetry-demo/pull/336))
 * [accounting] Run the Kafka consumer as a hosted background service so process
   shutdown can stop the consumer cleanly
   ([#3608](https://github.com/open-telemetry/opentelemetry-demo/pull/3608))
