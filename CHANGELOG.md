@@ -7,6 +7,10 @@ the release.
 
 ## Unreleased
 
+* [frontend] Map gRPC status codes from backend services onto HTTP status codes
+  in the API routes, so a request for a product that is not in the catalog
+  answers 404 instead of 500 and is no longer recorded as a frontend
+  server-side error
 * [accounting] Run the Kafka consumer as a hosted background service so process
   shutdown can stop the consumer cleanly
   ([#3608](https://github.com/open-telemetry/opentelemetry-demo/pull/3608))
