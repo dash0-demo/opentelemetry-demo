@@ -54,6 +54,18 @@ describe('Product Detail Page', () => {
     cy.get('@undefinedImage.all').should('have.length', 0);
   });
 
+  it('should respond with 404, not 500, for a product id that is not in the catalog', () => {
+    // The catalog answers gRPC NOT_FOUND for an unknown id. The API route must
+    // surface that as a client error; before the gRPC-to-HTTP status mapping was
+    // added this returned 500 and was counted as a frontend server fault.
+    cy.request({
+      url: '/api/products/THISIDDOESNOTEXIST?currencyCode=USD',
+      failOnStatusCode: false,
+    }).then(response => {
+      expect(response.status).to.eq(404);
+    });
+  });
+
   it('should add item to cart', () => {
     cy.intercept('POST', '/api/cart*').as('addToCart');
     cy.intercept('GET', '/api/cart*').as('getCart');
