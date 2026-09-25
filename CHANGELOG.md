@@ -7,6 +7,11 @@ the release.
 
 ## Unreleased
 
+* [load-generator] Bound the lifetime of the headless Chromium used for browser
+  traffic: recycle it every `LOCUST_BROWSER_RECYCLE_AFTER_TASKS` tasks (default
+  200) and close it, along with the Playwright driver, when a user stops.
+  `PlaywrightUser` launched one browser per user and never closed it, so the
+  container's memory and writable layer grew for as long as the process ran.
 * [accounting] Run the Kafka consumer as a hosted background service so process
   shutdown can stop the consumer cleanly
   ([#3608](https://github.com/open-telemetry/opentelemetry-demo/pull/3608))
