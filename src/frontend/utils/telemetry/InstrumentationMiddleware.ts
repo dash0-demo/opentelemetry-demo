@@ -5,6 +5,7 @@ import { NextApiHandler } from 'next';
 import { context, Exception, Span, SpanStatusCode, trace } from '@opentelemetry/api';
 import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
 
+import httpStatusFromError from '../grpcHttpStatus';
 import logger from './logger';
 
 const InstrumentationMiddleware = (handler: NextApiHandler): NextApiHandler => {
@@ -20,13 +21,16 @@ const InstrumentationMiddleware = (handler: NextApiHandler): NextApiHandler => {
         code: SpanStatusCode.ERROR,
         message: (error as Error).message,
       });
-      httpStatus = 500;
+      // A downstream gRPC client error (e.g. NOT_FOUND for a product id that
+      // is not in the catalog) is not a server failure, so it must not be
+      // reported as a 500. Backend failures keep their 500.
+      httpStatus = httpStatusFromError(error);
 
       // Emit one structured log record with the stack serialized into a single
       // JSON string (pino's `err` serializer). Deliberately do NOT re-throw:
       // re-throwing lets Next.js's default handler print `error.stack` to
       // stderr as multi-line text, and the filelog receiver ingests each
-      // "    at ..." frame as its own severity-less record. Sending the 500
+      // "    at ..." frame as its own severity-less record. Sending the status
       // ourselves keeps the stderr stream clean.
       const spanCtx = span.spanContext();
       logger.error(
@@ -39,7 +43,7 @@ const InstrumentationMiddleware = (handler: NextApiHandler): NextApiHandler => {
       );
 
       if (!response.headersSent) {
-        response.status(500).json({ error: (error as Error).message });
+        response.status(httpStatus).json({ error: (error as Error).message });
       }
     } finally {
       span.setAttribute(SemanticAttributes.HTTP_STATUS_CODE, httpStatus);

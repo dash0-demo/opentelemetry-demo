@@ -7,6 +7,10 @@ the release.
 
 ## Unreleased
 
+* [frontend] Return the matching 4xx status instead of `500` when a downstream
+  gRPC call fails with a client-error code, so requesting a product id that is
+  not in the catalog answers `404` rather than `500`
+
 * [accounting] Run the Kafka consumer as a hosted background service so process
   shutdown can stop the consumer cleanly
   ([#3608](https://github.com/open-telemetry/opentelemetry-demo/pull/3608))
