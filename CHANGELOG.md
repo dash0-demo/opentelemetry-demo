@@ -7,6 +7,10 @@ the release.
 
 ## Unreleased
 
+* [product-catalog] Distinguish a missing product from a database fault in
+  `GetProduct`: a missing product now returns gRPC `NotFound` with an `UNSET`
+  span status, and database faults return `Internal` with an `ERROR` span status
+  instead of being misreported as `NotFound`
 * [accounting] Run the Kafka consumer as a hosted background service so process
   shutdown can stop the consumer cleanly
   ([#3608](https://github.com/open-telemetry/opentelemetry-demo/pull/3608))
