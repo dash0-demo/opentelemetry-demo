@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -343,6 +344,12 @@ func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, err
 	return products, nil
 }
 
+// ErrProductNotFound is returned by getProductFromDB when the catalog contains
+// no product with the requested ID. It is the only error from that function that
+// represents a client mistake rather than a server-side fault, so callers must
+// distinguish it (with errors.Is) to pick the right gRPC status code.
+var ErrProductNotFound = errors.New("product not found")
+
 func getProductFromDB(ctx context.Context, productID string) (*pb.Product, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database connection not initialized")
@@ -361,8 +368,8 @@ func getProductFromDB(ctx context.Context, productID string) (*pb.Product, error
 	var nanos int32
 
 	if err := row.Scan(&id, &name, &description, &picture, &currencyCode, &units, &nanos, &categoriesStr); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("product not found")
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrProductNotFound
 		}
 		return nil, fmt.Errorf("failed to scan product row: %w", err)
 	}
@@ -485,9 +492,34 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 
 	found, err := getProductFromDB(ctx, productId)
 	if err != nil {
-		msg := fmt.Sprintf("Product Not Found: %s", productId)
+		// A missing product is a client error: the caller asked for an ID that
+		// is not in the catalog. Report NotFound and leave the span status
+		// UNSET, because the server handled the request correctly. Marking it
+		// Error would count expected 404s against the service's error rate.
+		if errors.Is(err, ErrProductNotFound) {
+			msg := fmt.Sprintf("Product Not Found: %s", productId)
+			span.SetAttributes(attribute.Bool("demo.product.found", false))
+			logger.LogAttrs(
+				ctx,
+				slog.LevelInfo, msg,
+				slog.String("demo.product.id", productId),
+			)
+			return nil, status.Error(codes.NotFound, msg)
+		}
+
+		// Anything else is a server-side fault (no DB connection, a failed
+		// query, a scan error). It must not be reported as NotFound, which
+		// would tell callers the product does not exist and hide the outage.
+		msg := fmt.Sprintf("Failed to load product %s: %v", productId, err)
 		span.SetStatus(otelcodes.Error, msg)
-		return nil, status.Error(codes.NotFound, msg)
+		span.RecordError(err)
+		logger.LogAttrs(
+			ctx,
+			slog.LevelError, "Failed to load product",
+			slog.String("demo.product.id", productId),
+			slog.String("error", err.Error()),
+		)
+		return nil, status.Error(codes.Internal, msg)
 	}
 
 	span.SetAttributes(
