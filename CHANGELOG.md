@@ -7,6 +7,10 @@ the release.
 
 ## Unreleased
 
+* [product-catalog] Seed the missing `ZFYYMZ29E6` product so `GetProduct` no
+  longer answers `NOT_FOUND` for a SKU that callers request
+  ([#342](https://github.com/dash0-demo/opentelemetry-demo/pull/342))
+
 * [accounting] Run the Kafka consumer as a hosted background service so process
   shutdown can stop the consumer cleanly
   ([#3608](https://github.com/open-telemetry/opentelemetry-demo/pull/3608))
