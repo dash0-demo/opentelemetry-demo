@@ -7,6 +7,10 @@ the release.
 
 ## Unreleased
 
+* [frontend] Map gRPC `NOT_FOUND` and `INVALID_ARGUMENT` from a backend service
+  to HTTP 404/400 in the API-route middleware instead of HTTP 500, and keep 4xx
+  responses out of the span error status, so requests for a non-existent
+  product no longer inflate the frontend and product-catalog error rates
 * [accounting] Run the Kafka consumer as a hosted background service so process
   shutdown can stop the consumer cleanly
   ([#3608](https://github.com/open-telemetry/opentelemetry-demo/pull/3608))
