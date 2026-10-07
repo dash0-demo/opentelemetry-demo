@@ -486,7 +486,12 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 	found, err := getProductFromDB(ctx, productId)
 	if err != nil {
 		msg := fmt.Sprintf("Product Not Found: %s", productId)
-		span.SetStatus(otelcodes.Error, msg)
+		// A lookup for an unknown ID is a client error (gRPC NOT_FOUND), not a
+		// server fault. Per the OpenTelemetry gRPC semantic conventions, server
+		// spans only get ERROR status for server-side codes (e.g. INTERNAL), so
+		// record the event but leave the span status unset. This keeps invalid
+		// IDs sent by clients from counting towards the service error rate.
+		span.AddEvent(msg)
 		return nil, status.Error(codes.NotFound, msg)
 	}
 
