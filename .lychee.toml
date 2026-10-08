@@ -9,12 +9,23 @@ retry_wait_time = 10
 timeout = 30
 max_concurrency = 1
 
+# 503 means the host was temporarily unavailable, not that the link is broken.
+# Large hosts (github.com in particular) rate-limit the checker and answer 503
+# while still serving the page fine in a browser, which fails CI on every PR
+# for reasons unrelated to the change under review. A genuinely dead link
+# answers 404/410 or fails to resolve, and those are still reported.
+accept = ["200..=299", "503"]
+
 exclude = [
   "^http://localhost",
   "^https://calendar\\.google\\.com/calendar",
   "^https://www\\.gnu\\.org",
   "^https://platform\\.openai\\.com",
   "^https://www\\.robotstxt\\.org",
+  # Hosts that permanently answer 403 to any non-browser client. The
+  # user_agent override above is not enough for these.
+  "^https://cloud-native\\.slack\\.com",
+  "^https://community\\.splunk\\.com",
 ]
 
 exclude_path = [
