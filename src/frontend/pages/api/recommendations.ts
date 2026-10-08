@@ -35,9 +35,7 @@ const handler = async ({ method, query }: NextApiRequest, res: NextApiResponse<T
         requestedIds.map(id => ProductCatalogService.getProduct(id, currencyCode as string))
       );
 
-      const recommendedProductList = results.flatMap(result =>
-        result.status === 'fulfilled' ? [result.value] : []
-      );
+      const recommendedProductList = results.flatMap(result => (result.status === 'fulfilled' ? [result.value] : []));
       const failures = results.flatMap((result, index) =>
         result.status === 'rejected' ? [{ productId: requestedIds[index], error: result.reason as Error }] : []
       );
