@@ -7,6 +7,10 @@ the release.
 
 ## Unreleased
 
+* [frontend] Return the HTTP status that matches the upstream gRPC status code
+  instead of always returning 500, so an upstream caller error (for example
+  `NOT_FOUND` for a product id that does not exist) is no longer reported as a
+  server fault in error rates and alerting
 * [accounting] Run the Kafka consumer as a hosted background service so process
   shutdown can stop the consumer cleanly
   ([#3608](https://github.com/open-telemetry/opentelemetry-demo/pull/3608))
