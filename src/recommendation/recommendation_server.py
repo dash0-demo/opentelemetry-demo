@@ -83,8 +83,11 @@ def get_product_list(request_product_ids):
                 logger.info("get_product_list: cache miss")
                 cat_response = product_catalog_stub.ListProducts(demo_pb2.Empty())
                 response_ids = [x.id for x in cat_response.products]
-                cached_ids = cached_ids + response_ids
-                cached_ids = cached_ids + cached_ids[:len(cached_ids) // 4]
+                # Replace the cache with the current catalog, de-duplicated.
+                # Appending to it (and re-appending a quarter of its own
+                # entries) grew the list ~25% per miss with no bound, until
+                # the container ran out of memory and restarted.
+                cached_ids = list(dict.fromkeys(response_ids))
                 product_ids = cached_ids
             else:
                 span.set_attribute("demo.recommendation.cache_hit", True)
