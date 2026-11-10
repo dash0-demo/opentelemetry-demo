@@ -219,10 +219,56 @@ class WebsiteUser(HttpUser):
 browser_traffic_enabled = os.environ.get("LOCUST_BROWSER_TRAFFIC_ENABLED", "").lower() in ("true", "yes", "on")
 
 if browser_traffic_enabled:
+    import asyncio
+    import functools
+    import time
+
+    import gevent
+    import locust_plugins.users.playwright as locust_playwright
+
+    # locust-plugins opens a fresh BrowserContext for every task, but each browser
+    # user keeps the same Chromium process for as long as the load generator runs.
+    # That process keeps growing over days, so relaunch it once it has been running
+    # for LOCUST_BROWSER_RECYCLE_INTERVAL_SEC (default: 1 hour). Set to 0 to disable.
+    BROWSER_RECYCLE_INTERVAL_SEC = int(os.environ.get("LOCUST_BROWSER_RECYCLE_INTERVAL_SEC", "3600"))
+
+    async def relaunch_browser(user):
+        old_browser, user.browser = user.browser, None
+        if old_browser is not None:
+            try:
+                await old_browser.close()
+            except Exception as e:
+                logging.warning(f"Error closing browser before relaunch: {str(e)}")
+        await user._pwprep()  # launches a new browser because user.browser is None
+
+    def recycle_browser(func):
+        """Relaunch a sub-user's browser before the task when it is due. Apply above @pw."""
+
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            if BROWSER_RECYCLE_INTERVAL_SEC > 0:
+                for sub_user in self.sub_users:
+                    launched_at = sub_user.__dict__.setdefault("browser_launched_at", time.monotonic())
+                    if sub_user.browser is not None and time.monotonic() - launched_at < BROWSER_RECYCLE_INTERVAL_SEC:
+                        continue
+                    future = asyncio.run_coroutine_threadsafe(relaunch_browser(sub_user), locust_playwright.loop)
+                    while not future.done():
+                        gevent.sleep(0.1)
+                    if future.exception():
+                        # sub_user.browser stays None, so the next task tries again
+                        logging.error(f"Error relaunching browser: {str(future.exception())}")
+                    else:
+                        sub_user.browser_launched_at = time.monotonic()
+                        logging.info("Relaunched browser to release accumulated memory")
+            return func(self, *args, **kwargs)
+
+        return wrapper
+
     class WebsiteBrowserUser(PlaywrightUser):
         headless = True  # to use a headless browser, without a GUI
 
         @task
+        @recycle_browser
         @pw
         async def open_cart_page_and_change_currency(self, page: PageWithRetry):
             tracer = trace.get_tracer(__name__)
@@ -238,6 +284,7 @@ if browser_traffic_enabled:
                     logging.error(f"Error in change currency task: {str(e)}")
 
         @task
+        @recycle_browser
         @pw
         async def add_product_to_cart(self, page: PageWithRetry):
             tracer = trace.get_tracer(__name__)
