@@ -9,7 +9,8 @@ import random
 import uuid
 import logging
 
-from locust import HttpUser, task, between
+import gevent
+from locust import HttpUser, task, between, events
 from locust_plugins.users.playwright import PlaywrightUser, pw, PageWithRetry, event
 
 from opentelemetry import context, baggage, trace
@@ -78,6 +79,31 @@ logging.info("Instrumentation complete - logs will now include trace context")
 base_url = f"http://{os.environ.get('FLAGD_HOST', 'localhost')}:{os.environ.get('FLAGD_OFREP_PORT', 8016)}"
 api.set_provider(OFREPProvider(base_url=base_url))
 api.add_hooks([TracingHook()])
+
+# Locust appends a snapshot to stats.history every 5 seconds for the web UI charts
+# and only clears it when a new test is started. The load generator runs a single
+# test for days, so the list grows without bound (~1 KB per entry, ~18 MB/day).
+# Keep only the most recent entries (default: 720 = 1 hour). Set to 0 to disable.
+STATS_HISTORY_MAX_ENTRIES = int(os.environ.get("LOCUST_STATS_HISTORY_MAX_ENTRIES", "720"))
+STATS_HISTORY_TRIM_INTERVAL_SEC = 60
+
+
+def trim_stats_history(stats, max_entries):
+    excess = len(stats.history) - max_entries
+    if excess > 0:
+        del stats.history[:excess]
+
+
+def stats_history_trimmer(environment):
+    while True:
+        gevent.sleep(STATS_HISTORY_TRIM_INTERVAL_SEC)
+        trim_stats_history(environment.stats, STATS_HISTORY_MAX_ENTRIES)
+
+
+@events.init.add_listener
+def on_locust_init(environment, **kwargs):
+    if STATS_HISTORY_MAX_ENTRIES > 0:
+        gevent.spawn(stats_history_trimmer, environment)
 
 def get_flagd_value(FlagName):
     # Initialize OpenFeature
