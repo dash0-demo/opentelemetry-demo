@@ -50,12 +50,8 @@ func CreateKafkaProducer(brokers []string, logger *slog.Logger) (sarama.AsyncPro
 		return nil, err
 	}
 
-	// We will log to STDOUT if we're not able to produce messages.
-	go func() {
-		for err := range producer.Errors() {
-			logger.Error(fmt.Sprintf("Failed to write message: %+v", err))
-
-		}
-	}()
+	// Successes() and Errors() must each have exactly one consumer, which the
+	// caller provides (see handleKafkaResults in main.go). A second reader here
+	// would take results meant for that consumer.
 	return producer, nil
 }

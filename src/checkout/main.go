@@ -247,6 +247,8 @@ func main() {
 		svc.KafkaProducerClient, err = kafka.CreateKafkaProducer([]string{svc.kafkaBrokerSvcAddr}, logger)
 		if err != nil {
 			logger.Error(err.Error())
+		} else {
+			go svc.handleKafkaResults()
 		}
 	}
 
@@ -652,43 +654,21 @@ func (cs *checkout) sendToPostProcessor(ctx context.Context, result *pb.OrderRes
 		Value: sarama.ByteEncoder(message),
 	}
 
-	// Inject tracing info into message
+	// Inject tracing info into message. The span is ended by handleKafkaResults
+	// once the producer reports the outcome of this specific message.
 	span := createProducerSpan(ctx, &msg)
-	defer span.End()
+	msg.Metadata = &kafkaPublish{span: span, startTime: time.Now()}
 
-	// Send message and handle response
-	startTime := time.Now()
+	// Hand the message to the async producer and return. PlaceOrder must not
+	// wait on Successes()/Errors(): those channels are shared by every request,
+	// so a request waiting on them is released by whichever message is acked
+	// next, not by its own.
 	select {
 	case cs.KafkaProducerClient.Input() <- &msg:
-		select {
-		case successMsg := <-cs.KafkaProducerClient.Successes():
-			span.SetAttributes(
-				attribute.Bool("messaging.kafka.producer.success", true),
-				attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
-				attribute.KeyValue(semconv.MessagingKafkaMessageOffset(int(successMsg.Offset))),
-			)
-			logger.Info(fmt.Sprintf("Successful to write message. offset: %v, duration: %v", successMsg.Offset, time.Since(startTime)))
-		case errMsg := <-cs.KafkaProducerClient.Errors():
-			span.SetAttributes(
-				attribute.Bool("messaging.kafka.producer.success", false),
-				attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
-			)
-			span.SetStatus(otelcodes.Error, errMsg.Err.Error())
-			logger.Error(fmt.Sprintf("Failed to write message: %v", errMsg.Err))
-		case <-ctx.Done():
-			span.SetAttributes(
-				attribute.Bool("messaging.kafka.producer.success", false),
-				attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
-			)
-			span.SetStatus(otelcodes.Error, "Context cancelled: "+ctx.Err().Error())
-			logger.Warn(fmt.Sprintf("Context canceled before success message received: %v", ctx.Err()))
-		}
 	case <-ctx.Done():
-		span.SetAttributes(
-			attribute.Bool("messaging.kafka.producer.success", false),
-			attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
-		)
+		span.SetAttributes(attribute.Bool("messaging.kafka.producer.success", false))
 		span.SetStatus(otelcodes.Error, "Failed to send: "+ctx.Err().Error())
+		span.End()
 		logger.Error(fmt.Sprintf("Failed to send message to Kafka within context deadline: %v", ctx.Err()))
 		return
 	}
@@ -698,11 +678,67 @@ func (cs *checkout) sendToPostProcessor(ctx context.Context, result *pb.OrderRes
 		logger.Info("Warning: FeatureFlag 'kafkaQueueProblems' is activated, overloading queue now.")
 		for range ffValue {
 			go func(msg sarama.ProducerMessage) {
+				// Overload copies carry no span; their results are drained by
+				// handleKafkaResults like every other message.
+				msg.Metadata = nil
 				cs.KafkaProducerClient.Input() <- &msg
-				<-cs.KafkaProducerClient.Successes()
 			}(msg)
 		}
 		logger.Info(fmt.Sprintf("Done with #%d messages for overload simulation.", ffValue))
+	}
+}
+
+// kafkaPublish travels with a message in sarama's Metadata field so that its
+// success or error can be attributed to the message that produced it.
+type kafkaPublish struct {
+	span      trace.Span
+	startTime time.Time
+}
+
+// handleKafkaResults is the single consumer of the producer's Successes() and
+// Errors() channels. It runs for the lifetime of the producer and ends each
+// message's producer span when its outcome is known.
+func (cs *checkout) handleKafkaResults() {
+	successes := cs.KafkaProducerClient.Successes()
+	errs := cs.KafkaProducerClient.Errors()
+	for successes != nil || errs != nil {
+		select {
+		case msg, ok := <-successes:
+			if !ok {
+				successes = nil
+				continue
+			}
+			p, ok := msg.Metadata.(*kafkaPublish)
+			if !ok {
+				continue
+			}
+			p.span.SetAttributes(
+				attribute.Bool("messaging.kafka.producer.success", true),
+				attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(p.startTime).Milliseconds())),
+				attribute.KeyValue(semconv.MessagingKafkaMessageOffset(int(msg.Offset))),
+			)
+			p.span.End()
+			logger.Info(fmt.Sprintf("Successful to write message. offset: %v, duration: %v", msg.Offset, time.Since(p.startTime)))
+		case perr, ok := <-errs:
+			if !ok {
+				errs = nil
+				continue
+			}
+			logger.Error(fmt.Sprintf("Failed to write message: %v", perr.Err))
+			if perr.Msg == nil {
+				continue
+			}
+			p, ok := perr.Msg.Metadata.(*kafkaPublish)
+			if !ok {
+				continue
+			}
+			p.span.SetAttributes(
+				attribute.Bool("messaging.kafka.producer.success", false),
+				attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(p.startTime).Milliseconds())),
+			)
+			p.span.SetStatus(otelcodes.Error, perr.Err.Error())
+			p.span.End()
+		}
 	}
 }
 
