@@ -2,7 +2,7 @@
   "$schema": "https://flagd.dev/schema/v0/flags.json",
   "flags": {
     "productCatalogFailure": {
-      "description": "Fail product catalog service on a specific product",
+      "description": "Fail product catalog service on a specific product. Defaults to off in this file (see 4fc438a); a live flag store value can override it, so check the running value when product catalog errors appear.",
       "state": "ENABLED",
       "variants": {
         "on": true,
