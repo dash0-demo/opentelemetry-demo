@@ -15,7 +15,10 @@ COPY ./src/product-catalog/genproto/oteldemo/ genproto/oteldemo/
 COPY ./src/product-catalog/flags/ flags/
 COPY ./src/product-catalog/main.go main.go
 
-RUN CGO_ENABLED=0 GOOS=linux GO111MODULE=on go build -ldflags "-s -w" -o product-catalog main.go
+ARG SERVICE_VERSION=""
+ARG VCS_REF_HEAD_REVISION=""
+
+RUN CGO_ENABLED=0 GOOS=linux GO111MODULE=on go build -ldflags "-s -w -X main.buildVersion=${SERVICE_VERSION} -X main.buildRevision=${VCS_REF_HEAD_REVISION}" -o product-catalog main.go
 
 FROM ghcr.io/grpc-ecosystem/grpc-health-probe:v0.4.52@sha256:0303b506a288d544ed99fef17a55c8c5ce872f498f643c396b532b3595089ac9 AS grpc-health-probe
 

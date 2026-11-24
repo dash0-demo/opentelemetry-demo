@@ -70,6 +70,14 @@ var (
 	reg               metric.Registration
 )
 
+// buildVersion and buildRevision are set at image build time through
+// -ldflags (see the Dockerfile). They stay empty when the binary is built
+// without them, in which case no build attributes are added to the resource.
+var (
+	buildVersion  string
+	buildRevision string
+)
+
 func init() {
 	logger = otelslog.NewLogger("product-catalog")
 }
@@ -88,6 +96,7 @@ func initResource() *sdkresource.Resource {
 			sdkresource.WithProcess(),
 			sdkresource.WithContainer(),
 			sdkresource.WithHost(),
+			sdkresource.WithAttributes(buildAttributes()...),
 		)
 		resource, _ = sdkresource.Merge(
 			sdkresource.Default(),
@@ -95,6 +104,19 @@ func initResource() *sdkresource.Resource {
 		)
 	})
 	return resource
+}
+
+// buildAttributes returns service.version and vcs.ref.head.revision when they
+// were set at build time, so telemetry can be tied to the commit that built it.
+func buildAttributes() []attribute.KeyValue {
+	var attrs []attribute.KeyValue
+	if buildVersion != "" {
+		attrs = append(attrs, attribute.String("service.version", buildVersion))
+	}
+	if buildRevision != "" {
+		attrs = append(attrs, attribute.String("vcs.ref.head.revision", buildRevision))
+	}
+	return attrs
 }
 
 func initTracerProvider() *sdktrace.TracerProvider {
